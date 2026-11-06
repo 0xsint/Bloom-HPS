@@ -1,8 +1,8 @@
 ## Title: Bloom HPS
 ## APIVersion: 101046
-## AddOnVersion: 2.1
+## AddOnVersion: 3
 ## Author: Vixen Hunny
-## SavedVariables: HPSMeterSavedVars HPSMeterHealingData
+## SavedVariables: HPSMeterSavedVars
 ## DependsOn: LibAddonMenu-2.0
 ## Description: HPS and SPS Meter
 
