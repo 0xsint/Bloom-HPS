@@ -1,73 +1,74 @@
-# Bloom HPS
+# Bloom HPS (LibFights edition)
 
-An Elder Scrolls Online addon that shows your **Healing Per Second (HPS)** and **Shielding Per Second (SPS)**, tracks damage absorbed by your shields, and remembers your best Battleground runs. It works on **PC and console** and is safe to use in PvP.
+A small Elder Scrolls Online meter that shows the following numbers, all taken from **LibFights**:
 
-## Features
-
-The on-screen meter shows:
-
-| Line | Contents |
+| Value | Meaning |
 |---|---|
-| 1 | Rolling **HPS** and **SPS**, averaged over the last *N* seconds (default 10) |
-| 2 | **Group** totals: healing and shielding you gave to other players |
-| 3 | **Personal** totals: healing and shielding you gave to yourself |
-| 4 | **Mitigated %**: damage absorbed by your shields ÷ (absorbed + shielding applied) |
-| 5 | **Overall HPS / SPS**: average rates since the last reset |
+| **HPS** | Effective healing you did per second (overheal excluded) |
+| **HPM** | The same per minute |
+| **SPS** | Damage absorbed by shields on you per second |
+| **SPM** | The same per minute |
+| **Shield** | Total damage absorbed by shields on you this fight |
 
-Lines 2–3 appear once they are non-zero. Shielding and Overall lines can be turned off in the settings.
+Rates are averaged over the current fight. When combat ends the meter keeps showing that fight's final numbers until the next fight starts. LibFights decides when fights start and end.
 
-The meter resets on its own after a configurable idle time (default 5 minutes) and at the end of every Battleground. Each finished session is saved to a history of the last 20 runs, which also feeds your all-time best stats.
+## Requirements
+
+- **LibFights** 1.0.0 with the shield API (`GetSPS`, `GetSPM`, `GetTotalShield`) (required). A copy is in `LibFights/`.
+- **LibAddonMenu-2.0** (optional, for the settings panel).
 
 ## Installation
 
-1. Copy this folder into your ESO AddOns directory as **`HPSMeter`**. The folder name must match `HPSMeter.addon`.
-   - PC: `Documents\Elder Scrolls Online\live\AddOns\HPSMeter\`
-2. Install **LibAddonMenu-2.0**. The settings panel requires it.
-3. Enable **Bloom HPS** in the in-game AddOns list.
-4. Configure it under **Settings → Addons → Bloom HPS**.
+1. Copy this folder into your AddOns directory as **`HPSMeter`**. The folder name must match `HPSMeter.addon`.
+   - PC live: `Documents\Elder Scrolls Online\live\AddOns\HPSMeter\`
+   - PTS: `Documents\Elder Scrolls Online\pts\AddOns\HPSMeter\`
+2. Make sure LibFights is installed. The bundled `HPSMeter/LibFights/` copy works, or you can install it as its own `AddOns/LibFights/` folder. Use one copy, not both.
+3. Enable **Bloom HPS** and **LibFights** in the in-game AddOns list.
 
-## Slash commands
+Bloom HPS calls `Start_Logging()` for you when it loads. LibFights records nothing until that call. If another addon already started logging, Bloom HPS just reads the same data.
+
+## Commands
 
 | Command | Action |
 |---|---|
-| `/bloomhps` | Show the command list |
-| `/bloomhpslink` | Put a summary of the current session in the chat box, ready to send (PC); prints it on console |
-| `/bloomhpsstats` | Show saved best stats (aliases: `/bloomhpsbg`, `/bloomhpsmax`, `/bloomhpsbest`) |
-| `/bloomhpsreset` | Reset the current session (it is saved to history first) |
-| `/bloomhpsresetstats` | Clear saved best stats and history (alias: `/bloomhpsclear`) |
+| `/bloomhps` | Print HPS / HPM / SPS / SPM and the shield total for the current or last fight |
+| `/bloomhps help` | List commands |
 
 ## Settings
 
-| Setting | Default | Notes |
-|---|---|---|
-| Show Meter | on | Hides the meter. Tracking continues while it is hidden. |
-| Position X / Y | 300 / 200 | |
-| Scale | 0.5 | |
-| Rolling Window | 10 s | Applies to both HPS and SPS |
-| Healing / Shielding / Overall color | `9ff8ba` / `b8f7ff` / `d6ffd6` | 6-digit hex values. Invalid input falls back to the default. |
-| Show Shielding & Mitigation | on | Hides the SPS, shield and mitigation values |
-| Show Overall HPS / SPS | on | |
-| Idle Reset Timer | 300 s | Time without healing or shielding before the session resets |
+Settings are under **Settings → Addons → Bloom HPS**: show/hide, position X/Y, scale, healing color, shielding color, and show/hide the shield line (SPS / SPM / total). Settings from earlier versions (position, colors) carry over.
 
-Settings are saved account-wide in `SavedVariables/HPSMeter.lua`. Settings from earlier versions carry over.
+## Code layout
 
-## How it works
+| File | Responsibility |
+|---|---|
+| `HPSMeter.addon` | Manifest. Declares LibFights as a dependency and sets the load order. |
+| `src/Core.lua` | Namespace, defaults, number/color helpers, chat output |
+| `src/Data.lua` | **The only file that touches LibFights.** Turns the current fight into `{ hps, hpm, sps, spm, shieldTotal }`. |
+| `src/UI.lua` | Label, shadow and auto-sizing backdrop. Builds the display text. |
+| `src/Settings.lua` | LibAddonMenu-2.0 panel |
+| `src/Commands.lua` | Slash commands |
+| `src/Init.lua` | Startup. Hooks into LibFights' `FIGHT_STARTED` / `FIGHT_ENDED` callbacks. |
 
-Everything is in `HPSMeter.lua`. The file is organised top to bottom as follows.
+### Performance
 
-1. **Helpers**: number formatting (`1.5k`, `12m`), hex color handling, chat output, and a memoised name normaliser. Combat events report names as `Name^Mx`, while unit APIs report plain names.
-2. **`RollingWindow`**: a ring buffer with one bucket per second. Adding a value or moving time forward is O(1). The rate is `total / windowSize`.
-3. **Session state** (`HPSMeterUI.session`): totals, first-event timestamps, and the last activity time. `HPSMeterUI:Reset()` saves the session to history if it has any data, then starts a new one.
-4. **Healing**: one `EVENT_COMBAT_EVENT` registration per heal result (heal, crit heal, HoT tick, crit HoT tick). Each one is filtered to the player as the source, so the game only calls the addon for your own heals. The target type decides whether a heal is personal or group.
-5. **Shielding** works in three steps:
-   - A buff you apply (`EFFECT_GAINED` / `EFFECT_GAINED_DURATION`, source = you) puts the target on a watch list for 20 seconds.
-   - `EVENT_UNIT_ATTRIBUTE_VISUAL_ADDED/UPDATED/REMOVED` reports the shield value on that unit. An **increase** counts as shielding you did. Entries are keyed by name, so one unit reported under several tags (`player` and `groupN`) is counted once.
-   - `ACTION_RESULT_DAMAGE_SHIELDED` hits on a watched unit with an active shield add to the mitigated total.
-6. **Display**: a single label with a drop-shadow copy and a backdrop that resizes to fit the text. Events only mark the display as dirty. A 500 ms tick redraws it when something changed or a second has passed. The same tick handles the idle reset and clears out expired shield entries.
-7. **Settings**: a LibAddonMenu-2.0 panel. "Reset to defaults" works for every option.
+Bloom HPS registers **no combat events of its own** and does not listen to LibFights' per-event `COMBAT_EVENT` callback. It reads the fight totals that LibFights already keeps, on a 500 ms timer that only runs during a fight. Out of combat it does nothing.
+
+## How the numbers are calculated
+
+From the LibFights fight object (`LibFights.GetLastFight()`):
+
+| Value | LibFights call |
+|---|---|
+| HPS | `fight:GetHPS()` (`totals.healOut / duration`) |
+| HPM | `fight:GetHPM()` |
+| SPS | `fight:GetSPS()` (`GetTotalShield() / duration`) |
+| SPM | `fight:GetSPM()` |
+| Shield | `fight:GetTotalShield()` (`totals.shieldAbsorbedIn`) |
 
 ## Known limitations
 
-- The addon cannot tell which shield on a unit is yours. If a target you buffed also gets a shield from another player within the watch window, that shield counts toward your SPS.
-- Heals from pets and companions are not counted. Only heals with the player as the source are.
-- `textures/heart.dds` and `textures/shield.dds` are kept for future use. The current single-label layout does not use them.
+- **SPS is shields absorbing damage on you, not shields you cast on others.** LibFights counts a "shield" when the game reports that damage was absorbed by a shield (`ACTION_RESULT_DAMAGE_SHIELDED`). That event says who was shielded, but not whose shield it was. As a result:
+  - Shields from other players that absorb damage on you are counted.
+  - Shields you put on allies are not.
+- Heals from pets are counted, because LibFights treats player pets as the player. Heals from companions are not.
