@@ -1,6 +1,6 @@
 -- ============================================================================
 -- Bloom HPS - Slash commands
---   /bloomhps        print the current (or last) fight's numbers
+--   /bloomhps        print the current (or last) fight's numbers and shield total
 --   /bloomhps help   list commands
 -- ============================================================================
 
@@ -17,13 +17,13 @@ local function PrintStats()
         M.Print("No fight recorded yet.")
         return
     end
-    M.Print(format("%s fight | HPS %s | HPM %s | SPS %s | SPM %s",
+    M.Print(format("%s fight | HPS %s | HPM %s | SPS %s | SPM %s | Shield %s",
         stats.active and "Current" or "Last",
-        Fmt(stats.hps), Fmt(stats.hpm), Fmt(stats.sps), Fmt(stats.spm)))
+        Fmt(stats.hps), Fmt(stats.hpm), Fmt(stats.sps), Fmt(stats.spm), Fmt(stats.shieldTotal)))
 end
 
 local function PrintHelp()
-    M.Print("/bloomhps - show HPS / HPM / SPS / SPM for the current or last fight")
+    M.Print("/bloomhps - show HPS / HPM / SPS / SPM and shield total for the current or last fight")
     M.Print("/bloomhps help - show this list")
 end
 

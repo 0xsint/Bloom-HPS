@@ -1,6 +1,6 @@
 # Bloom HPS (LibFights edition)
 
-A small Elder Scrolls Online meter that shows four numbers, all taken from **LibFights**:
+A small Elder Scrolls Online meter that shows the following numbers, all taken from **LibFights**:
 
 | Value | Meaning |
 |---|---|
@@ -8,12 +8,13 @@ A small Elder Scrolls Online meter that shows four numbers, all taken from **Lib
 | **HPM** | The same per minute |
 | **SPS** | Damage absorbed by shields on you per second |
 | **SPM** | The same per minute |
+| **Shield** | Total damage absorbed by shields on you this fight |
 
 Rates are averaged over the current fight. When combat ends the meter keeps showing that fight's final numbers until the next fight starts. LibFights decides when fights start and end.
 
 ## Requirements
 
-- **LibFights** 1.0.0 or later (required). A copy is in `LibFights/`.
+- **LibFights** 1.0.0 with the shield API (`GetSPS`, `GetSPM`, `GetTotalShield`) (required). A copy is in `LibFights/`.
 - **LibAddonMenu-2.0** (optional, for the settings panel).
 
 ## Installation
@@ -30,12 +31,12 @@ Bloom HPS calls `Start_Logging()` for you when it loads. LibFights records nothi
 
 | Command | Action |
 |---|---|
-| `/bloomhps` | Print HPS / HPM / SPS / SPM for the current or last fight |
+| `/bloomhps` | Print HPS / HPM / SPS / SPM and the shield total for the current or last fight |
 | `/bloomhps help` | List commands |
 
 ## Settings
 
-Settings are under **Settings → Addons → Bloom HPS**: show/hide, position X/Y, scale, healing color, shielding color, and show/hide the SPS/SPM line. Settings from earlier versions (position, colors) carry over.
+Settings are under **Settings → Addons → Bloom HPS**: show/hide, position X/Y, scale, healing color, shielding color, and show/hide the shield line (SPS / SPM / total). Settings from earlier versions (position, colors) carry over.
 
 ## Code layout
 
@@ -43,7 +44,7 @@ Settings are under **Settings → Addons → Bloom HPS**: show/hide, position X/
 |---|---|
 | `HPSMeter.addon` | Manifest. Declares LibFights as a dependency and sets the load order. |
 | `src/Core.lua` | Namespace, defaults, number/color helpers, chat output |
-| `src/Data.lua` | **The only file that touches LibFights.** Turns the current fight into `{ hps, hpm, sps, spm }`. |
+| `src/Data.lua` | **The only file that touches LibFights.** Turns the current fight into `{ hps, hpm, sps, spm, shieldTotal }`. |
 | `src/UI.lua` | Label, shadow and auto-sizing backdrop. Builds the display text. |
 | `src/Settings.lua` | LibAddonMenu-2.0 panel |
 | `src/Commands.lua` | Slash commands |
@@ -57,10 +58,13 @@ Bloom HPS registers **no combat events of its own** and does not listen to LibFi
 
 From the LibFights fight object (`LibFights.GetLastFight()`):
 
-- `HPS = fight:GetHPS()`, which is `totals.healOut / fight duration`
-- `HPM = HPS × 60`
-- `SPS = totals.shieldAbsorbedIn / fight duration`
-- `SPM = SPS × 60`
+| Value | LibFights call |
+|---|---|
+| HPS | `fight:GetHPS()` (`totals.healOut / duration`) |
+| HPM | `fight:GetHPM()` |
+| SPS | `fight:GetSPS()` (`GetTotalShield() / duration`) |
+| SPM | `fight:GetSPM()` |
+| Shield | `fight:GetTotalShield()` (`totals.shieldAbsorbedIn`) |
 
 ## Known limitations
 

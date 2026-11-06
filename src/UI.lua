@@ -80,7 +80,8 @@ function UI.BuildText(stats)
         Colorize(saved.labelColor, format("HPS: %s  HPM: %s", Fmt(stats.hps), Fmt(stats.hpm))),
     }
     if saved.showShields then
-        lines[2] = Colorize(saved.shieldColor, format("SPS: %s  SPM: %s", Fmt(stats.sps), Fmt(stats.spm)))
+        lines[2] = Colorize(saved.shieldColor, format("SPS: %s  SPM: %s  Shield: %s",
+            Fmt(stats.sps), Fmt(stats.spm), Fmt(stats.shieldTotal)))
     end
     return table.concat(lines, "\n")
 end

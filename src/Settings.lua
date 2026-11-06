@@ -69,7 +69,7 @@ function Settings.Create()
         Color("Healing Color", "labelColor", M.DEFAULT_HEAL_COLOR),
 
         { type = "header", name = "Shielding" },
-        Checkbox("Show SPS / SPM", "showShields"),
+        Checkbox("Show Shield Line (SPS / SPM / total)", "showShields"),
         Color("Shielding Color", "shieldColor", M.DEFAULT_SHIELD_COLOR),
     })
 end
