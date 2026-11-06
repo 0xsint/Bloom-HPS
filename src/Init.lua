@@ -32,6 +32,7 @@ end
 local function MigrateSettings(saved)
     saved.labelColor  = M.SanitizeHex(saved.labelColor, M.DEFAULT_HEAL_COLOR)
     saved.shieldColor = M.SanitizeHex(saved.shieldColor, M.DEFAULT_SHIELD_COLOR)
+    saved.mitigationColor = M.SanitizeHex(saved.mitigationColor, M.DEFAULT_MITIGATION_COLOR)
 end
 
 local function HookLibFights()
@@ -40,7 +41,7 @@ local function HookLibFights()
     LF.RegisterCallback(LF.EVENTS.FIGHT_ENDED, StopTicking)
     LF.RegisterCallback(LF.EVENTS.LOGGING_STOPPED, StopTicking)
 
-    local ok, reason = M.Data.StartLogging()
+    local ok, reason = M.Data.StartLogging(M.saved.groupMode)
     if not ok then M.Print("Could not start LibFights logging: " .. tostring(reason)) end
 
     -- Logging may have started mid-fight (e.g. after /reloadui in combat).

@@ -15,6 +15,7 @@ M.TICK_MS = 500 -- how often the meter redraws while a fight is running
 
 M.DEFAULT_HEAL_COLOR   = "9ff8ba"
 M.DEFAULT_SHIELD_COLOR = "b8f7ff"
+M.DEFAULT_MITIGATION_COLOR = "d6ffd6"
 
 M.defaults = {
     showLabel   = true,
@@ -24,6 +25,10 @@ M.defaults = {
     labelColor  = M.DEFAULT_HEAL_COLOR,
     showShields = true,
     shieldColor = M.DEFAULT_SHIELD_COLOR,
+    showSplits  = true,  -- personal / group lines
+    showMitigation = true,
+    mitigationColor = M.DEFAULT_MITIGATION_COLOR,
+    groupMode   = true,  -- LibFights group mode (needed for group shields)
 }
 
 local floor, format = math.floor, string.format
