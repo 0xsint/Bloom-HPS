@@ -269,3 +269,6 @@ Const.CRIT_RATING_PER_PERCENT    = 219.12
 Const.BASE_CRIT_DAMAGE           = 0.5      -- +50% base critical damage
 
 Const.MAX_BOSSES = G("MAX_BOSSES") or 12
+
+-- attribute visual used by the game's shield bar (damage shields on a unit)
+Const.VISUAL_SHIELD = G("ATTRIBUTE_VISUAL_POWER_SHIELDING")

@@ -74,10 +74,13 @@ f:GetDPS(active?) f:GetDPM() f:GetBossDPS()
 f:GetHPS() f:GetHPM() f:GetRawHPS()
 f:GetDTPS() f:GetDTPM() f:GetHTPS() f:GetHTPM()
 f:GetMPS() f:GetMPM() f:GetTotalMitigated()
+f:GetSPS() f:GetSPM() f:GetTotalShield()            -- shield absorbed on you
+f:GetShieldGainedPS() f:GetShieldGainedPM() f:GetTotalShieldGained()  -- shield applied to you
+f:GetGroupSPS() f:GetGroupSPM() f:GetGroupShieldTotal()  -- group mode: shields on other members
 f.totals                -- raw totals
 f:GetAbilityBreakdown(kind, sortBy, limit)  -- kind: damageOut|healOut|damageIn|healIn|shieldIn|shieldOut
 f:GetTargets() f:GetSources() f:GetDamageTypes(incoming?)
-f:GetTimeline(field)    -- per-second array; field: dOut|hOut|dIn|hIn|mit|oh
+f:GetTimeline(field)    -- per-second array; field: dOut|hOut|dIn|hIn|mit|oh|sIn|sGain
 f:GetRollingRate(field, windowSec)
 f:GetEffectUptimes("player"|"target", onlyMine?)
 f:GetProcs() f:GetSets() f:GetCasts() f:GetPower(type?) f:GetDeaths()
@@ -85,11 +88,13 @@ f:GetBuild() f:GetStats() f:GetGroup()
 f:GetEvents() f:DecodeEvent(ev) f:GetEventCount()
 f:ToData(includeEvents)  /  LibFights.Fight.FromData(data)
 ```
-`GetSummary()` fields include: `damage dps dpm activeDPS bossDamage bossDPS damageShielded dotShare overkill healing hps hpm rawHealing rawHPS overhealPct selfHealing damageTaken dtps dtpm healingTaken htps htpm mitigated mps mpm mitigatedShield mitigatedBlockEst mitigatedArmorEst mitigatedAvoidEst mitigationPct hits crits critRate ticks avgHit maxHit maxHitAbility healCritRate maxHeal incomingCritRate blockedHits dodges misses immune casts skillCasts lightAttacks heavyAttacks ultimates apm skillsPerMinute weaves weaveRatio avgSkillGapMs barSwaps frontBarPct backBarPct killingBlows deaths interruptsOut interruptsIn ccOut ccIn powerGained procActivations numTargets numAbilities`.
+`GetSummary()` fields include: `damage dps dpm activeDPS bossDamage bossDPS damageShielded dotShare overkill healing hps hpm rawHealing rawHPS overhealPct selfHealing damageTaken dtps dtpm healingTaken htps htpm mitigated mps mpm mitigatedShield mitigatedBlockEst mitigatedArmorEst mitigatedAvoidEst mitigationPct shield sps spm shieldHits shieldPctOfIncoming shieldGained shieldGainedPS shieldGainedPM shieldApplications shieldPeak shieldExpired shieldEfficiency groupShield groupSPS groupSPM hits crits critRate ticks avgHit maxHit maxHitAbility healCritRate maxHeal incomingCritRate blockedHits dodges misses immune casts skillCasts lightAttacks heavyAttacks ultimates apm skillsPerMinute weaves weaveRatio avgSkillGapMs barSwaps frontBarPct backBarPct killingBlows deaths interruptsOut interruptsIn ccOut ccIn powerGained procActivations numTargets numAbilities`.
 
 Each ability row has `id name icon graphic damageType total pct dps dpm hits crits critRate avg avgNormal avgCrit min max ticks tickTotal directHits directTotal overflow results`.
 
 **Mitigation:** shield absorption is exact. Block, armor and avoidance numbers are estimates: block uses the `blockMitigation` setting, armor uses your resistances (660 = 1%, 50% cap), and avoidance uses the average hit of the same enemy ability.
+
+**Shields:** SPS / SPM / total count damage absorbed by shields on you, taken exactly from `ACTION_RESULT_DAMAGE_SHIELDED`. "Shield gained" comes from the game's shield bar on you (`EVENT_UNIT_ATTRIBUTE_VISUAL_*`), so it also counts shield that ran out unused (`shieldExpired`). In group mode, shields on other members are tracked per member. The game reports a shield hit with the attacker as the source, so shields you put on other players can't be credited to you.
 
 ### Abilities and IDs
 ```lua
@@ -168,7 +173,7 @@ LibFights.Search("query", { limit = 50, fight = f })
 LibFights.FindEvents(fight, { direction="out", category="damage", abilityId=..., abilityName=..., source=..., target=...,
                               result=..., damageType=..., crit=true, minHit=..., maxHit=..., fromMs=..., toMs=..., limit=..., newestFirst=true })
 LibFights.NewQuery(f):Direction("out"):Category("damage"):Crit(true):MinHit(10000):Limit(20):Run()   -- also :Count() :Sum() :Max()
-LibFights.QueryFights({ zone=..., title=..., target=..., character=..., minDurationSec=..., minDPS=..., sinceTimestamp=... })
+LibFights.QueryFights({ zone=..., title=..., target=..., character=..., minDurationSec=..., minDPS=..., minSPS=..., sinceTimestamp=... })
 ```
 Each raw event is a compact array. Read it with the indexes in `LibFights.EVENT_FIELDS` (`TIME DIR RESULT ABILITY HIT OVERFLOW SOURCE TARGET DAMAGE_TYPE POWER_TYPE SLOT_TYPE`) or call `f:DecodeEvent(ev)`.
 

@@ -26,6 +26,10 @@ function Report.FightSummaryLines(f)
         fmt("Healing %s | HPS %s | HPM %s | raw HPS %s | overheal %s", N(s.healing), N(s.hps), N(s.hpm), N(s.rawHPS), P(s.overhealPct)),
         fmt("Taken %s | DTPS %s | DTPM %s | healing taken %s (HTPS %s)", N(s.damageTaken), N(s.dtps), N(s.dtpm), N(s.healingTaken), N(s.htps)),
         fmt("Mitigated %s | MPS %s | MPM %s | shield %s, block~%s, armor~%s, avoid~%s", N(s.mitigated), N(s.mps), N(s.mpm), N(s.mitigatedShield), N(s.mitigatedBlockEst), N(s.mitigatedArmorEst), N(s.mitigatedAvoidEst)),
+        fmt("Shield %s | SPS %s | SPM %s | %s of incoming | applied %s (%d) | peak %s | expired %s%s",
+            N(s.shield), N(s.sps), N(s.spm), P(s.shieldPctOfIncoming), N(s.shieldGained), s.shieldApplications,
+            N(s.shieldPeak), N(s.shieldExpired),
+            s.groupShield > 0 and fmt(" | group shield %s (%s/s)", N(s.groupShield), N(s.groupSPS)) or ""),
         fmt("Crit %s (%d/%d) | avg hit %s | max hit %s (%s) | DoT share %s", P(s.critRate), s.crits, s.hits, N(s.avgHit), N(s.maxHit), s.maxHitAbility or "-", P(s.dotShare)),
         fmt("Casts %d | APM %.1f | LA %d HA %d | weaves %d (%s) | swaps %d | front %s / back %s", s.casts, s.apm, s.lightAttacks, s.heavyAttacks, s.weaves, P(s.weaveRatio), s.barSwaps, P(s.frontBarPct), P(s.backBarPct)),
         fmt("Deaths %d | KBs %d | interrupts %d | CC out %d / in %d | procs %d | targets %d", s.deaths, s.killingBlows, s.interruptsOut, s.ccOut, s.ccIn, s.procActivations, s.numTargets),
@@ -35,9 +39,9 @@ end
 function Report.ShortLiveText(f)
     if not f then return "No fight." end
     local s = f:GetSummary()
-    return fmt("%s %s\nDPS %s  HPS %s\nDTPS %s  MPS %s\nCrit %s  APM %.0f",
+    return fmt("%s %s\nDPS %s  HPS %s\nDTPS %s  MPS %s\nSPS %s  Crit %s  APM %.0f",
         s.isActive and "|c00FF00LIVE|r" or "|cAAAAAALAST|r", Util.FormatDuration(s.durationMs),
-        N(s.dps), N(s.hps), N(s.dtps), N(s.mps), P(s.critRate, 0), s.apm)
+        N(s.dps), N(s.hps), N(s.dtps), N(s.mps), N(s.sps), P(s.critRate, 0), s.apm)
 end
 
 function Report.AbilityLines(f, kind, limit)
@@ -242,7 +246,9 @@ function Report.SetInfoLines(setId)
     return lines
 end
 
--- Compact single-line export: "LF1|id|title|durSec|dmg|dps|heal|hps|taken|mitigated|crit|top abilities"
+-- Compact single-line export:
+-- "LF1|id|title|durSec|dmg|dps|heal|hps|taken|mitigated|crit|top abilities|shield|sps"
+-- (shield fields are appended last so readers of the first 12 fields keep working)
 function Report.Export(f)
     if not f then return "" end
     local s = f:GetSummary()
@@ -253,7 +259,7 @@ function Report.Export(f)
     return table.concat({
         "LF1", tostring(s.id), (string.gsub(s.title or "", "|", "/")), fmt("%.1f", s.durationSec), fmt("%.0f", s.damage), fmt("%.0f", s.dps),
         fmt("%.0f", s.healing), fmt("%.0f", s.hps), fmt("%.0f", s.damageTaken), fmt("%.0f", s.mitigated), fmt("%.3f", s.critRate),
-        table.concat(top, ";"),
+        table.concat(top, ";"), fmt("%.0f", s.shield), fmt("%.0f", s.sps),
     }, "|")
 end
 
@@ -264,6 +270,7 @@ function Report.AllFightLines(f)
     add(Report.AbilityLines(f, "damageOut", 10))
     add(Report.AbilityLines(f, "healOut", 5))
     add(Report.AbilityLines(f, "damageIn", 5))
+    add(Report.AbilityLines(f, "shieldIn", 5))
     add(Report.TargetLines(f, 5))
     add(Report.ProcLines(f, 10))
     add(Report.SetLines(f))

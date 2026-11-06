@@ -14,6 +14,7 @@
       EVENT_ACTIVE_WEAPON_PAIR_CHANGED bar swaps / bar uptime
       EVENT_INVENTORY_SINGLE_SLOT_UPDATE gear swaps mid fight
       EVENT_PLAYER_ACTIVATED           zone change ends the current fight
+      EVENT_UNIT_ATTRIBUTE_VISUAL_*    shield bar on you (shields applied / peak / expired)
 ]]
 
 local LF = LibFights
@@ -149,7 +150,7 @@ local function EndFight(reason)
     f.summary = f:GetSummary()
 
     local T = f.totals
-    local meaningful = (T.damageOut + T.healOut + T.damageIn + T.shieldAbsorbedIn) > 0
+    local meaningful = (T.damageOut + T.healOut + T.damageIn + T.shieldAbsorbedIn + (T.groupShieldAbsorbed or 0)) > 0
     if not meaningful or f:GetDurationSec() < (s.minFightSeconds or 2) then
         LF.Debug("Fight %d discarded (%s)", f.id, reason or "?")
         return nil
@@ -318,7 +319,44 @@ local function OnCombatAll(_, result, isError, abilityName, graphic, slotType, s
         HandleIncoming(result, abilityName, graphic, slotType, sourceName, sourceType, targetName, targetType, hit, powerType, damageType, sourceUnitId, targetUnitId, abilityId, overflow)
     elseif sourceType == Const.UT_GROUP or (Const.UT_COMPANION and sourceType == Const.UT_COMPANION) then
         HandleGroup(result, abilityName, sourceName, sourceType, targetName, targetType, hit, sourceUnitId, targetUnitId, abilityId)
+    elseif targetType == Const.UT_GROUP and CATEGORY[result] == "shield" then
+        -- an enemy hit a shield on another group member
+        local f = state.fight
+        if f and (hit or 0) > 0 then
+            local now = GetGameTimeMilliseconds()
+            f:NoteUnit(sourceUnitId, sourceName, sourceType)
+            f:NoteUnit(targetUnitId, targetName, targetType)
+            f:RecordGroupShield(targetUnitId, hit, now)
+            if f.events then
+                f.events:Push({ now, DIR.GROUP, result, abilityId, hit, 0, sourceUnitId, targetUnitId, damageType or 0, 0, 0 })
+            end
+        end
     end
+end
+
+-- ---------------------------------------------------------------------------
+-- Shield bar on you
+-- ---------------------------------------------------------------------------
+local function IsShieldVisual(visual)
+    return Const.VISUAL_SHIELD ~= nil and visual == Const.VISUAL_SHIELD
+end
+
+local function OnShieldAdded(_, unitTag, visual, _, _, _, value)
+    local f = state.fight
+    if not f or not IsShieldVisual(visual) then return end
+    f:RecordShieldValue("added", 0, value or 0, GetGameTimeMilliseconds())
+end
+
+local function OnShieldUpdated(_, unitTag, visual, _, _, _, oldValue, newValue)
+    local f = state.fight
+    if not f or not IsShieldVisual(visual) then return end
+    f:RecordShieldValue("updated", oldValue or 0, newValue or 0, GetGameTimeMilliseconds())
+end
+
+local function OnShieldRemoved(_, unitTag, visual, _, _, _, value)
+    local f = state.fight
+    if not f or not IsShieldVisual(visual) then return end
+    f:RecordShieldValue("removed", value or 0, 0, GetGameTimeMilliseconds())
 end
 
 -- ---------------------------------------------------------------------------
@@ -491,6 +529,13 @@ function Logger.Start(options)
     Register("WeaponPair", EVENT_ACTIVE_WEAPON_PAIR_CHANGED, OnWeaponPair)
     Register("Gear", EVENT_INVENTORY_SINGLE_SLOT_UPDATE, OnGearChanged, REGISTER_FILTER_BAG_ID, BAG_WORN)
     Register("Activated", EVENT_PLAYER_ACTIVATED, OnPlayerActivated)
+
+    -- shield bar on you
+    if Const.VISUAL_SHIELD and EVENT_UNIT_ATTRIBUTE_VISUAL_ADDED then
+        Register("ShieldAdded", EVENT_UNIT_ATTRIBUTE_VISUAL_ADDED, OnShieldAdded, REGISTER_FILTER_UNIT_TAG, "player")
+        Register("ShieldUpdated", EVENT_UNIT_ATTRIBUTE_VISUAL_UPDATED, OnShieldUpdated, REGISTER_FILTER_UNIT_TAG, "player")
+        Register("ShieldRemoved", EVENT_UNIT_ATTRIBUTE_VISUAL_REMOVED, OnShieldRemoved, REGISTER_FILTER_UNIT_TAG, "player")
+    end
 
     state.logging = true
     if IsUnitInCombat("player") then BeginFight() end

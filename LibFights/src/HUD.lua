@@ -18,7 +18,7 @@ function HUD.Create()
     local wm = WINDOW_MANAGER
     local gamepad = LF.IsGamepad()
     local win = wm:CreateTopLevelWindow("LibFightsHUD")
-    win:SetDimensions(gamepad and 280 or 230, gamepad and 130 or 100)
+    win:SetDimensions(gamepad and 280 or 230, gamepad and 160 or 122)
     win:SetClampedToScreen(true)
     win:SetMouseEnabled(not LF.isConsole)
     win:SetMovable(not LF.isConsole and not S().hudLocked)

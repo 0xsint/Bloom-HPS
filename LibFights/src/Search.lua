@@ -292,7 +292,7 @@ function Query:Max()
 end
 
 -- Searches saved + in-memory fights with structured criteria
--- filter: zone, title, target, character (substrings), minDurationSec, minDPS, sinceTimestamp
+-- filter: zone, title, target, character (substrings), minDurationSec, minDPS, minSPS, sinceTimestamp
 function LF.QueryFights(filter)
     filter = filter or {}
     local out = {}
@@ -306,6 +306,7 @@ function LF.QueryFights(filter)
         if ok and filter.character and not Util.Contains(f.character, filter.character) then ok = false end
         if ok and filter.minDurationSec and f:GetDurationSec() < filter.minDurationSec then ok = false end
         if ok and filter.minDPS and f:GetDPS() < filter.minDPS then ok = false end
+        if ok and filter.minSPS and f:GetSPS() < filter.minSPS then ok = false end
         if ok and filter.sinceTimestamp and (f.startTimestamp or 0) < filter.sinceTimestamp then ok = false end
         if ok and filter.target then
             local found = false

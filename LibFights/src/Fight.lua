@@ -43,7 +43,11 @@ local function NewTotals()
         healTicksOut = 0, selfHeal = 0,
         -- incoming
         damageIn = 0, hitsIn = 0, critsIn = 0, healIn = 0, overhealIn = 0, healHitsIn = 0,
-        shieldAbsorbedIn = 0, blockedHitsIn = 0, blockedDamageIn = 0,
+        shieldAbsorbedIn = 0, shieldHitsIn = 0, blockedHitsIn = 0, blockedDamageIn = 0,
+        -- shields on you (absorbed = exact from combat events; gained/peak from the shield bar)
+        shieldGained = 0, shieldApplications = 0, shieldPeak = 0, shieldExpired = 0,
+        -- group mode: damage absorbed by shields on other group members
+        groupShieldAbsorbed = 0,
         -- mitigation (shield is exact, the rest are estimates)
         mitigatedShield = 0, mitigatedBlockEst = 0, mitigatedArmorEst = 0, mitigatedAvoidEst = 0,
         dodgesIn = 0, missesIn = 0, parriesIn = 0, immuneIn = 0, reflectsIn = 0, absorbsIn = 0, blockedFullIn = 0,
@@ -183,7 +187,7 @@ function Fight:_Bucket(now)
     if sec < 1 then sec = 1 end
     local b = self.timeline[sec]
     if not b then
-        b = { dOut = 0, hOut = 0, dIn = 0, hIn = 0, mit = 0, oh = 0 }
+        b = { dOut = 0, hOut = 0, dIn = 0, hIn = 0, mit = 0, oh = 0, sIn = 0, sGain = 0 }
         self.timeline[sec] = b
     end
     return b
@@ -372,11 +376,13 @@ function Fight:RecordIncoming(cat, result, abilityId, abilityName, graphic, slot
         b.hIn = b.hIn + hit
     elseif cat == "shield" then
         T.shieldAbsorbedIn = T.shieldAbsorbedIn + hit
+        T.shieldHitsIn = (T.shieldHitsIn or 0) + 1
         T.mitigatedShield = T.mitigatedShield + hit
         local a = self:_Agg("shieldIn", abilityId, abilityName, graphic, slotType, damageType, powerType, now)
         AddAgg(a, hit, false, false, 0, result, now)
         local b = self:_Bucket(now)
         b.mit = b.mit + hit
+        b.sIn = (b.sIn or 0) + hit
         self.lastCombatMs = now
     elseif cat == "avoid" then
         if result == R.DODGED then T.dodgesIn = T.dodgesIn + 1
@@ -408,13 +414,19 @@ function Fight:RecordIncoming(cat, result, abilityId, abilityName, graphic, slot
 end
 
 -- group-mode outgoing damage / healing of other group members
+function Fight:_GroupMember(unitId)
+    local g = self.group[unitId]
+    if not g then
+        g = { unitId = unitId, name = self:GetUnitName(unitId), damage = 0, healing = 0, hits = 0, crits = 0, shieldAbsorbed = 0, abilities = {} }
+        self.group[unitId] = g
+    end
+    if g.shieldAbsorbed == nil then g.shieldAbsorbed = 0 end
+    return g
+end
+
 function Fight:RecordGroup(cat, result, abilityId, abilityName, sourceUnitId, hit, now)
     if cat ~= "damage" and cat ~= "heal" then return end
-    local g = self.group[sourceUnitId]
-    if not g then
-        g = { unitId = sourceUnitId, name = self:GetUnitName(sourceUnitId), damage = 0, healing = 0, hits = 0, crits = 0, abilities = {} }
-        self.group[sourceUnitId] = g
-    end
+    local g = self:_GroupMember(sourceUnitId)
     if cat == "damage" then g.damage = g.damage + hit else g.healing = g.healing + hit end
     g.hits = g.hits + 1
     if CRIT[result] then g.crits = g.crits + 1 end
@@ -422,6 +434,37 @@ function Fight:RecordGroup(cat, result, abilityId, abilityName, sourceUnitId, hi
     if not a then a = { id = abilityId, name = abilityName, total = 0, hits = 0 }; g.abilities[abilityId] = a end
     a.total = a.total + hit
     a.hits = a.hits + 1
+    self.lastEventMs = now
+end
+
+-- group mode: damage absorbed by a shield on another group member (the shield's caster is unknown)
+function Fight:RecordGroupShield(targetUnitId, hit, now)
+    local T = self.totals
+    T.groupShieldAbsorbed = (T.groupShieldAbsorbed or 0) + hit
+    local g = self:_GroupMember(targetUnitId)
+    g.shieldAbsorbed = g.shieldAbsorbed + hit
+    self.lastEventMs = now
+end
+
+-- Shield bar on you (ATTRIBUTE_VISUAL_POWER_SHIELDING).
+-- kind: "added" | "updated" | "removed"; oldValue/newValue are the shield amounts before/after.
+function Fight:RecordShieldValue(kind, oldValue, newValue, now)
+    local T = self.totals
+    oldValue, newValue = oldValue or 0, newValue or 0
+    if kind == "added" then
+        T.shieldApplications = (T.shieldApplications or 0) + 1
+    end
+    local gained = newValue - oldValue
+    if kind ~= "removed" and gained > 0 then
+        T.shieldGained = (T.shieldGained or 0) + gained
+        local b = self:_Bucket(now)
+        b.sGain = (b.sGain or 0) + gained
+    end
+    if kind == "removed" and oldValue > 0 then
+        -- whatever was left when the shield bar disappeared ran out unused
+        T.shieldExpired = (T.shieldExpired or 0) + oldValue
+    end
+    if newValue > (T.shieldPeak or 0) then T.shieldPeak = newValue end
     self.lastEventMs = now
 end
 
@@ -637,6 +680,19 @@ function Fight:GetHTPM() return self:GetHTPS() * 60 end
 function Fight:GetMPS() return self:GetTotalMitigated() / self:GetDurationSec() end
 function Fight:GetMPM() return self:GetMPS() * 60 end
 
+-- Shields: damage absorbed by shields on you (exact)
+function Fight:GetTotalShield() return self.totals.shieldAbsorbedIn or 0 end
+function Fight:GetSPS() return self:GetTotalShield() / self:GetDurationSec() end
+function Fight:GetSPM() return self:GetSPS() * 60 end
+-- Shields applied to you (from the shield bar), including any that ran out unused
+function Fight:GetTotalShieldGained() return self.totals.shieldGained or 0 end
+function Fight:GetShieldGainedPS() return self:GetTotalShieldGained() / self:GetDurationSec() end
+function Fight:GetShieldGainedPM() return self:GetShieldGainedPS() * 60 end
+-- Group mode: damage absorbed by shields on other group members
+function Fight:GetGroupShieldTotal() return self.totals.groupShieldAbsorbed or 0 end
+function Fight:GetGroupSPS() return self:GetGroupShieldTotal() / self:GetDurationSec() end
+function Fight:GetGroupSPM() return self:GetGroupSPS() * 60 end
+
 function Fight:GetTitle()
     for name in pairs(self.bosses) do return name end
     local best, bestDmg = nil, -1
@@ -688,6 +744,16 @@ function Fight:GetSummary()
         mitigatedShield = T.mitigatedShield, mitigatedBlockEst = T.mitigatedBlockEst,
         mitigatedArmorEst = T.mitigatedArmorEst, mitigatedAvoidEst = T.mitigatedAvoidEst,
         mitigationPct = Util.SafeDiv(mitigated, mitigated + T.damageIn),
+
+        shield = T.shieldAbsorbedIn or 0, sps = (T.shieldAbsorbedIn or 0) / dur, spm = (T.shieldAbsorbedIn or 0) / dur * 60,
+        shieldHits = T.shieldHitsIn or 0,
+        shieldPctOfIncoming = Util.SafeDiv(T.shieldAbsorbedIn or 0, (T.shieldAbsorbedIn or 0) + T.damageIn),
+        shieldGained = T.shieldGained or 0, shieldGainedPS = (T.shieldGained or 0) / dur,
+        shieldGainedPM = (T.shieldGained or 0) / dur * 60, shieldApplications = T.shieldApplications or 0,
+        shieldPeak = T.shieldPeak or 0, shieldExpired = T.shieldExpired or 0,
+        shieldEfficiency = Util.SafeDiv(T.shieldAbsorbedIn or 0, T.shieldGained or 0),
+        groupShield = T.groupShieldAbsorbed or 0, groupSPS = (T.groupShieldAbsorbed or 0) / dur,
+        groupSPM = (T.groupShieldAbsorbed or 0) / dur * 60,
 
         hits = T.hitsOut, crits = T.critsOut, critRate = Util.SafeDiv(T.critsOut, T.hitsOut),
         ticks = T.ticksOut, avgHit = Util.SafeDiv(T.damageOut, T.hitsOut),
@@ -773,7 +839,8 @@ function Fight:GetDamageTypes(incoming)
     return rows
 end
 
--- field: dOut | hOut | dIn | hIn | mit | oh ; returns dense array, one value per second
+-- field: dOut | hOut | dIn | hIn | mit | oh | sIn (shield absorbed on you) | sGain (shield applied to you)
+-- returns dense array, one value per second
 function Fight:GetTimeline(field)
     field = field or "dOut"
     local n = floor(self:GetDurationMs() / 1000) + 1

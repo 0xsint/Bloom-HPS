@@ -519,6 +519,28 @@ f:GetMPM()                 -> number   damage mitigated per minute
 f:GetTotalMitigated()      -> number   shield + block est + armor est +
                                        avoid est
 
+--- Shields (always over the full fight duration) ---------------------------
+f:GetTotalShield()         -> number   damage absorbed by shields on you
+                                       (exact, from ACTION_RESULT_DAMAGE_SHIELDED)
+f:GetSPS()                 -> number   shield absorbed per second
+f:GetSPM()                 -> number   shield absorbed per minute
+f:GetTotalShieldGained()   -> number   shield points applied to you (read from
+                                       the game's shield bar; includes shield
+                                       that later ran out unused). 0 if the
+                                       client has no shield-bar events.
+f:GetShieldGainedPS()      -> number   shield applied per second
+f:GetShieldGainedPM()      -> number   shield applied per minute
+f:GetGroupShieldTotal()    -> number   group mode only: damage absorbed by
+                                       shields on OTHER group members. 0 in
+                                       player mode.
+f:GetGroupSPS()            -> number   group shield absorbed per second
+f:GetGroupSPM()            -> number   group shield absorbed per minute
+
+  Note: the game reports a shield hit with the ATTACKER as the source, so
+  shields you cast on other players cannot be attributed to you. Group
+  shield numbers are per protected member (f.group[unitId].shieldAbsorbed),
+  not per caster.
+
 --- Summaries and breakdowns ---------------------------------------------------
 f:GetSummary()
     -> FightSummary table (17.6)         every metric in one table
@@ -546,7 +568,8 @@ f:GetTimeline(field?)
     field  "dOut" (default) damage done | "hOut" healing done
            "dIn" damage taken | "hIn" healing taken
            "mit" damage mitigated | "oh" overheal
-    -> array of numbers                  one value per second, index 1 =
+           "sIn" shield absorbed on you | "sGain" shield applied to you
+    -> array of numbers                 one value per second, index 1 =
                                          first second, gaps filled with 0
 
 f:GetRollingRate(field?, windowSec?)    windowSec default 5
@@ -680,7 +703,7 @@ LF.NewQuery(fight?)
 
 LF.QueryFights(filter?)
     filter: zone, title, target, character (substrings), minDurationSec,
-            minDPS, sinceTimestamp
+            minDPS, minSPS (shield per second), sinceTimestamp
     -> array of Fight                    memory first, then saved fights
 
 
@@ -743,12 +766,17 @@ AllFightLines(fight)                   -> lines   every report above combined
 
 ShortLiveText(fight)
     -> string                            4-line text used by the HUD
+                                         (last line: SPS, crit, APM)
                                          ("No fight." if nil)
 
 Export(fight)
     -> string  "LF1|id|title|durationSec|damage|dps|healing|hps|taken|
-                mitigated|critRate|abilityId:damage;abilityId:damage;..."
-               (top 10 damage abilities)
+                mitigated|critRate|abilityId:damage;abilityId:damage;...|
+                shield|sps"
+               (top 10 damage abilities; shield = damage absorbed by your
+               shields, sps = shield per second. These two are fields 13
+               and 14, after the ability list, so older readers of the
+               first 12 fields still work.)
     -> ""      when fight is nil
 
 
@@ -955,6 +983,20 @@ LF.Fight.DIR_NAME  { [1] "out", [2] "in", [3] "self", [4] "group" }
     Mitigation (shield exact, others estimated)
       mitigated mps mpm mitigatedShield mitigatedBlockEst mitigatedArmorEst
       mitigatedAvoidEst mitigationPct(0..1 of mitigated + taken)
+    Shields
+      shield sps spm             damage absorbed by shields on you (exact)
+      shieldHits                 number of hits a shield absorbed
+      shieldPctOfIncoming        0..1  shield / (shield + damage taken)
+      shieldGained shieldGainedPS shieldGainedPM
+                                 shield applied to you (shield bar)
+      shieldApplications         new shields (bar went from empty to full)
+      shieldPeak                 largest shield value seen on you
+      shieldExpired              shield left over when the bar disappeared
+      shieldEfficiency           0..1+ shield / shieldGained (0 when nothing
+                                 was applied; can pass 1 if a shield was
+                                 already up when the fight started)
+      groupShield groupSPS groupSPM
+                                 group mode: absorbed on other members
     Hits
       hits crits critRate(0..1) ticks avgHit maxHit maxHitAbilityId
       maxHitAbility healCritRate maxHeal maxHealAbility incomingHits
@@ -972,8 +1014,9 @@ LF.Fight.DIR_NAME  { [1] "out", [2] "in", [3] "self", [4] "group" }
     hitsOut critsOut ticksOut overkill damageOutShielded damageOutBlocked
     bossDamage healOut healOutNormal healOutCrit overheal healHitsOut
     healCritsOut healTicksOut selfHeal damageIn hitsIn critsIn healIn
-    overhealIn healHitsIn shieldAbsorbedIn blockedHitsIn blockedDamageIn
-    mitigatedShield mitigatedBlockEst mitigatedArmorEst mitigatedAvoidEst
+    overhealIn healHitsIn shieldAbsorbedIn shieldHitsIn blockedHitsIn
+    blockedDamageIn shieldGained shieldApplications shieldPeak shieldExpired
+    groupShieldAbsorbed mitigatedShield mitigatedBlockEst mitigatedArmorEst mitigatedAvoidEst
     dodgesIn missesIn parriesIn immuneIn reflectsIn absorbsIn blockedFullIn
     avoidedOut interruptsOut interruptsIn ccOut ccIn killingBlows deaths
     powerGained powerDrained
@@ -1058,6 +1101,8 @@ LF.Fight.DIR_NAME  { [1] "out", [2] "in", [3] "self", [4] "group" }
 
 17.16 GroupRow  (f:GetGroup, group mode)
     unitId name damage healing hits crits
+    shieldAbsorbed  damage absorbed by shields on this member
+                    (nil in fights saved before shield tracking was added)
     abilities  map abilityId -> { id, name, total, hits }
 
 17.17 DecodedEvent  (FindEvents, f:DecodeEvent, Query:Run)
@@ -1165,6 +1210,11 @@ LF.Fight.DIR_NAME  { [1] "out", [2] "in", [3] "self", [4] "group" }
                     isSelf)                            -> nothing
    f:RecordGroup(cat, result, abilityId, abilityName, sourceUnitId, hit,
                  now)                                  -> nothing
+   f:RecordGroupShield(targetUnitId, hit, now)         -> nothing
+   f:RecordShieldValue(kind, oldValue, newValue, now)  -> nothing
+       kind "added" | "updated" | "removed"; values are the shield amount on
+       you before and after the change (for "removed", oldValue = what was
+       left, which is counted as expired)
    f:RecordEffect(scope, changeType, abilityId, effectName, unitId,
                   unitName, stackCount, iconName, effectType, sourceType,
                   now)                                 -> effect entry
