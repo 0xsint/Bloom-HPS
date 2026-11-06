@@ -1,0 +1,1198 @@
+===============================================================================
+ LibFights  -  API REFERENCE  (version 1.0.0)
+===============================================================================
+
+ Every public function, its parameters and EXACTLY what it returns.
+
+ Conventions
+   LF            = the global table LibFights
+   f / fight     = a Fight object (see section 9)
+   ?             = optional parameter
+   -> x          = return value(s), in order
+   -> nothing    = returns no values (nil if you read it)
+   "ms"          = milliseconds, "sec" = seconds
+   Percent values: each field below says its range. "0..1" is a fraction
+   (0.52 = 52%), "0..100" is already a percentage.
+
+ IMPORTANT: nothing is logged until Start_Logging() is called. Every other
+ lookup (abilities, sets, build, stats, search) works at any time.
+
+ CONTENTS
+    1. Logging
+    2. Reading fights
+    3. Callbacks
+    4. Abilities and ability IDs
+    5. Sets
+    6. Stats
+    7. Build reader
+    8. Models (predictions)
+    9. Fight object methods
+   10. Search and queries
+   11. Saved data / settings
+   12. Text reports
+   13. HUD and settings panel
+   14. Core helpers
+   15. Util helpers
+   16. Constants
+   17. Data structures returned by the functions above
+   18. Internal functions (called by the library, listed for completeness)
+
+
+===============================================================================
+ 1. LOGGING
+===============================================================================
+
+Start_Logging(options?)                 also LF.Start_Logging / LF.StartLogging
+    Registers all combat events and starts collecting fight data. If you are
+    already in combat a fight begins immediately.
+    options  table, optional. Overrides settings for this logging session only:
+             rawEvents, rawEventCap, groupMode, trackTargetEffects, trackPower,
+             trackCasts, statSampleMs, combatEndGraceMs, fightTimeoutMs,
+             minFightSeconds, modelsEnabled, saveFights, buildDetail
+    -> true                              logging started
+    -> false, "already logging"          it was already running
+
+Stop_Logging()                          also LF.Stop_Logging / LF.StopLogging
+    Ends the current fight and unregisters every event.
+    -> true, fight                       fight = the fight that was just ended,
+                                         or nil if there was none or it was
+                                         discarded (too short / no data)
+    -> false, "not logging"
+
+Is_Logging()                            also LF.Is_Logging / LF.IsLogging
+    -> boolean
+
+LF.SplitFight()                         also LF.Logger.SplitFight()
+    Ends the current fight and immediately starts a new one.
+    -> true                              done
+    -> false                             not logging
+
+LF.Logger.EndCurrentFight()
+    -> true                              a fight was ended and kept
+    -> false                             no fight, or it was discarded
+
+LF.Logger.ClearFights()
+    Forgets all fights held in memory this session.
+    -> nothing
+
+LF.Logger.GetRegisteredEvents()
+    -> array of strings                  namespaces of registered events
+                                         (empty when not logging)
+
+
+===============================================================================
+ 2. READING FIGHTS
+===============================================================================
+
+LF.GetCurrentFight()                    also LF.Logger.GetCurrentFight()
+    -> Fight | nil                       the running fight
+
+LF.GetLastFight()                       also LF.Logger.GetLastFight()
+    -> Fight | nil                       running fight, else newest finished
+
+LF.Logger.GetLastFinishedFight()
+    -> Fight | nil                       newest finished fight in memory
+
+LF.GetFights()                          also LF.Logger.GetFights()
+    -> array of Fight                    finished fights this session, oldest
+                                         first (capped by maxFightsInMemory)
+
+LF.GetFight(id)                         also LF.Logger.GetFight(id)
+    id  number
+    -> Fight | nil                       searches memory, the running fight,
+                                         then SavedVariables
+
+LF.GetSavedFights()                     also LF.Storage.GetSavedFights()
+    -> array of Fight                    fights restored from SavedVariables
+
+LF.QueryFights(filter?)                 see section 10
+    -> array of Fight
+
+
+===============================================================================
+ 3. CALLBACKS
+===============================================================================
+
+LF.RegisterCallback(eventName, callback, arg?)
+    -> true                              registered
+    -> false                             eventName not a string or callback
+                                         not a function
+
+LF.UnregisterCallback(eventName, callback)
+    -> nothing
+
+LF.HasListeners(eventName)
+    -> boolean
+
+LF.FireCallback(eventName, ...)
+    -> nothing                           (only fires when listeners exist)
+
+Callback names (LF.EVENTS.*) and the arguments your callback receives:
+    INITIALIZED      ()
+    LOGGING_STARTED  (options)                 options table (may be empty)
+    LOGGING_STOPPED  ()
+    FIGHT_STARTED    (fight)
+    FIGHT_ENDED      (fight, reason)           reason: "combatEnd" "timeout"
+                                               "stopped" "split" "zone" "manual"
+    COMBAT_EVENT     (fight, direction, category, result, abilityId, hitValue,
+                      overflow, sourceUnitId, targetUnitId, damageType)
+                     direction: 1 out, 2 in, 3 self  (LF.Fight.DIR)
+                     category : see 16 (damage heal shield avoid cc ...)
+    EFFECT_CHANGED   (fight, scope, changeType, abilityId, effectName,
+                      unitId, stackCount)      scope: "player" | "target"
+    PROC             (fight, procEntry)        procEntry: see 17.10
+    DEATH            (fight, deathEntry)       deathEntry: see 17.14
+    CAST             (fight, slotIndex, abilityId, kind)
+                     kind: "light" "heavy" "skill" "ultimate" "other"
+    BAR_SWAP         (fight, activeWeaponPair) 1 = front, 2 = back
+    STATS_SAMPLE     (fight, statSnapshot)     snapshot: see 17.18
+    GEAR_CHANGED     (fight | nil, slotIndex)
+    SCAN_PROGRESS    (scanProgress)            see 17.3
+    SCAN_DONE        (scanProgress)
+
+
+===============================================================================
+ 4. ABILITIES AND ABILITY IDS                        LF.Abilities.*
+===============================================================================
+
+Exists(abilityId)
+    -> boolean
+
+GetInfo(abilityId, forceRefresh?)
+    abilityId  number or numeric string
+    -> AbilityInfo table (17.1)          cached after the first call
+    -> nil                               id invalid or ability does not exist
+
+GetName(abilityId)
+    -> string                            "" if unknown
+
+GetIcon(abilityId)
+    -> string                            texture path, "" if unknown
+
+GetIconMarkup(abilityId, size?)         size default 24
+    -> string                            "|t24:24:path|t" or ""
+
+Search(text, maxResults?)               maxResults default 50
+    text  name fragment, or a numeric id
+    -> array of AbilityInfo              numeric text: 0 or 1 entries (works
+                                         for any existing id).
+                                         names: exact match first, then
+                                         shortest names. Name search only
+                                         finds abilities already indexed
+                                         (seen in fights, looked up,
+                                         IndexPlayerSkills or StartScan).
+
+Index(abilityId, name)
+    Adds one ability to the search index.
+    -> nothing
+
+GetIndexCount()
+    -> number                            abilities in the search index
+
+GetKnownAbilityIds()
+    -> array of numbers                  every indexed id, ascending
+
+GetCachedCount()
+    -> number                            abilities with cached GetInfo
+
+ClearCache()
+    -> nothing
+
+StartScan(opts?)
+    Indexes ability ids over many frames.
+    opts.fromId (1)  opts.toId (260000)  opts.perFrame (1500 PC / 600 console)
+    opts.reportEvery (10000)  opts.onProgress(progress)  opts.onDone(progress)
+    -> true                              started
+    -> false, "scan already running"
+
+StopScan()
+    -> true                              a scan was stopped
+    -> false                             nothing was running
+
+IsScanRunning()
+    -> boolean
+
+GetScanProgress()
+    -> ScanProgress table (17.3)
+
+GetPlayerSkillAbilities(includeUnpurchased?)
+    -> array of SkillEntry (17.2)        every skill line of the character;
+                                         only purchased ones unless
+                                         includeUnpurchased is true
+
+IndexPlayerSkills()
+    -> number                            how many skills were indexed
+                                         (purchased and unpurchased)
+
+
+===============================================================================
+ 5. SETS                                             LF.Sets.*
+===============================================================================
+
+GetAllSetIds(forceRefresh?)
+    -> array of numbers                  every set id, ascending (collections
+                                         API + LibSets if installed). Cached.
+
+GetSetName(setId)
+    -> string                            "" if unknown
+
+GetSampleLink(setId)
+    -> string | nil                      item link of one piece of the set
+
+GetSetInfo(setId, forceRefresh?)
+    -> SetInfo table (17.4)
+    -> nil                               unknown set
+
+FindSetByName(name)
+    -> setId | nil                       loose match (case, punctuation and a
+                                         leading "Perfected" are ignored)
+
+Search(text, maxResults?)               maxResults default 50
+    text  name fragment or numeric set id
+    -> array of SetInfo                  (an entry is just {setId, name} in the
+                                         rare case GetSetInfo fails)
+
+GetEquippedSets()
+    -> map  setId -> EquippedSet (17.5)
+
+IsSetLogged(setId)
+    -> boolean                           true for every set while
+                                         "logAllSets" is on
+
+SetSetLogged(setId, enabled)
+    -> nothing
+
+SetLogAllSets(enabled)
+    -> nothing
+
+GetLoggedSetIds()
+    -> array of numbers                  all set ids if logAllSets is on,
+                                         otherwise the hand-picked list
+
+RegisterSetAbility(setId, abilityId)
+    Links an ability (proc) id to a set. Saved in SavedVariables.
+    -> nothing
+
+UnregisterSetAbility(abilityId)
+    -> nothing
+
+GetRegisteredAbilities(setId)
+    -> array of abilityIds, ascending
+
+GetSetForAbility(abilityId, abilityName?, fight?)
+    Registry first, then the fight's worn sets (loose), then every set name.
+    -> setId | nil
+
+
+===============================================================================
+ 6. STATS                                            LF.Stats.*
+===============================================================================
+
+GetSnapshot()
+    -> StatSnapshot table (17.18)        also stored in LF.Stats.current
+
+GetStat(key)                            key: e.g. "spellPower", "maxStamina"
+    -> number | nil
+
+GetStatLabel(key)
+    -> string                            display name, or the key itself
+
+GetPenetrationFor(damageType, snapshot?)
+    -> number                            spell pen for spell damage types,
+                                         physical pen for physical types,
+                                         the higher of the two otherwise
+
+GetArmorMitigation(damageType, snapshot?)
+    -> number 0 .. 0.5                   YOUR armor mitigation vs that type;
+                                         0 for oblivion/generic or when no
+                                         snapshot exists yet
+
+ArmorMitigationFromResist(resist, penetration?)
+    -> number 0 .. 0.5                   (resist - pen) / 66000, clamped
+
+CritPctFromRating(rating)
+    -> number                            crit chance in percent (0..100)
+
+GetValuesAt(fight, ms)
+    ms  milliseconds from fight start
+    -> table key -> value                every stat as it was at that moment
+    -> nil                               fight has no stat data
+
+
+===============================================================================
+ 7. BUILD READER                                     LF.Build.*
+===============================================================================
+
+Read(detail?)                           detail: "basic" (default) | "full"
+    -> Build table (17.19)               "full" also fills build.skills
+
+ReadCharacter()
+    -> Character table (17.19 .character)
+
+ReadAttributes()
+    -> { health, magicka, stamina, unspent }      attribute points
+
+ReadItem(bagId, slotIndex)
+    -> Item table (17.20)
+    -> nil                               empty slot
+
+ReadGear()
+    -> gear, armorCounts
+         gear         map equipSlot -> Item (17.20)
+         armorCounts  { light, medium, heavy }   number of pieces
+
+ReadBar(hotbarCategory)
+    -> map slotIndex(3..8) -> BarSlot (17.21)    empty slots are absent
+
+ReadBars()
+    -> { front = map, back = map }       each map as ReadBar
+
+ReadChampion()
+    -> { slotted = array of { slot, championSkillId, name, points },
+         totalEarned = number }
+
+ReadBuffs(unitTag?)                     unitTag default "player"
+    -> array of Buff (17.22)
+
+ReadMundus(buffs?)
+    -> array of { name, abilityId, icon }
+
+ReadLongBuffs(buffs?)
+    -> array of Buff                     buffs with >= 10 minutes left that
+                                         are not mundus (food, drink, ...)
+
+GetSignature(build)
+    -> string                            changes whenever gear, bars, CP or
+                                         mundus change
+
+GetSlottedLookup(build)
+    -> ids, names
+         ids    set  abilityId -> true
+         names  set  lower-case ability name -> true
+
+Compare(oldBuild, newBuild)
+    -> {
+         stats    = map key -> { old, new, delta }   changed stats only
+         gear     = map slotName -> { old, new }      item names
+         bars     = array of { bar, slot, old, new }  ability names
+         sets     = map setName -> { old, new }       pieces worn
+         champion = {}                                (reserved)
+       }
+       (all empty if either build is nil)
+
+
+===============================================================================
+ 8. MODELS (PREDICTIONS)                             LF.Models.*
+===============================================================================
+
+ The models learn while logging. "Reference" targets (target dummies by
+ default) calibrate the resistance model. Before that, only relative
+ toughness is available.
+
+GetReport()
+    -> ModelReport table (17.23)
+
+GetTargetEstimate(targetName)
+    -> TargetEstimate table (17.24)
+    -> nil                               nothing learned about that target
+
+GetAllTargetEstimates()
+    -> array of TargetEstimate           most samples first
+
+GetIncomingDR()
+    -> {
+         armorMitigationPct  number 0..100   your armor mitigation (smoothed)
+         otherDRPct          number 0..100   block / buffs / other DR estimate
+         totalDRPct          number 0..100   1 - (1-armor)(1-other)
+         samples             number
+         otherStdPct         number 0..100   uncertainty of otherDRPct
+       }
+
+GetCritEstimate(abilityId?)             nil = all abilities
+    (if that ability has no crit data yet, the crit CHANCE fields fall back
+     to the overall estimate; the crit DAMAGE fields stay nil)
+    -> {
+         critChance            0..1      | nil
+         critChanceStd         0..1      | nil
+         samples               number    | nil   hits observed
+         critDamageMultiplier  e.g. 1.75 | nil   needs >= 3 crits and
+         critDamagePct         e.g. 75   | nil   >= 3 non-crits on the
+         critDamageWeight      number    | nil   same target
+       }
+
+PredictHit(abilityId, targetName?)
+    -> {
+         nonCrit         number   expected non-crit hit
+         crit            number   expected crit hit
+         average         number   expected hit including crit chance
+         critChance      0..1
+         critMultiplier  number
+         rmse            number   model error (same units as the hit)
+       }
+    -> nil                               the ability has too little data
+
+PredictIncomingHit(abilityId, damageType)
+    -> meanHit, peakHit                  expected / worst hit against your
+                                         CURRENT resistances
+    -> nil                               ability never seen
+
+GetTTK(unitTag?)                        default "boss1"
+    -> secondsRemaining, healthFraction  health falling, enough samples
+    -> nil, healthFraction               not falling / under 3 samples
+    -> nil                               no data for that unit
+
+GetAllTTK()
+    -> array of { unitTag, name, secondsRemaining | nil, healthFraction }
+
+GetDPSForecast(secondsAhead?)           default 1
+    -> number | nil                      forecast DPS (nil before any data)
+
+PredictFightOutcome(fight?)             default: current fight
+    -> {
+         currentDPS, elapsedSec, ttkSec | nil,
+         predictedDurationSec | nil, predictedTotalDamage | nil,
+         predictedFinalDPS | nil         (the predicted* fields need TTK)
+       }
+    -> nil                               no fight
+
+IsReferenceTarget(targetName, targetType)
+    -> boolean
+
+Reset()                                 -> nothing   forget everything learned
+Save()                                  -> nothing   (only if persistModels)
+Load()                                  -> nothing   (only if persistModels)
+GetState()                              -> internal state table (advanced use)
+
+--- Primitive models (usable on their own) ----------------------------------
+Models.NewRLS(nFeatures, lambda?, delta?)   -> RLS
+    rls:Predict(x)        -> number               x = array of nFeatures
+    rls:Update(x, y)      -> number               prediction error before update
+    rls:GetRMSE()         -> number
+    fields: w (weights), P, count, mse
+Models.NewKalman(q, r)                      -> Kalman
+    k:Update(z)           -> number               new estimate
+    k:Std()               -> number | nil         nil before the first update
+    fields: x (estimate), p (variance), n
+Models.NewWelford()                         -> Welford
+    w:Add(x)              -> nothing
+    w:Variance()          -> number               0 with fewer than 2 values
+    w:Std()               -> number
+    fields: n, mean
+Models.NewBeta(a?, b?)                      -> Beta (defaults 1, 1)
+    b:Observe(success)    -> nothing
+    b:Mean()              -> number 0..1
+    b:Std()               -> number
+    b:Count()             -> number               observations
+Models.NewTrend(halfLifeSec?)               -> Trend (default 30)
+    t:Add(time, value)    -> nothing
+    t:Fit()               -> slope, intercept     nil under 3 samples
+Models.NewHolt(alpha?, beta?)               -> Holt (defaults 0.3, 0.1)
+    h:Update(y)           -> nothing
+    h:Forecast(steps?)    -> number | nil
+
+
+===============================================================================
+ 9. FIGHT OBJECT METHODS                             f:Method()
+===============================================================================
+
+--- Durations ----------------------------------------------------------------
+f:GetDurationMs()          -> number   ms, at least 1 (live fights: up to now)
+f:GetDurationSec()         -> number   sec, at least 1
+f:GetActiveSec()           -> number   sec from your first to last hit/heal
+f:IsActive()               -> boolean  true while the fight is running
+f:GetTitle()               -> string   boss name, else the most damaged
+                                       target, else zone, else "Fight <id>"
+
+--- Rates (useActive = true divides by GetActiveSec instead of duration) ----
+f:GetDPS(useActive?)       -> number   damage done per second
+f:GetDPM(useActive?)       -> number   damage done per minute
+f:GetBossDPS(useActive?)   -> number   damage to bosses per second
+f:GetHPS(useActive?)       -> number   effective healing done per second
+f:GetHPM(useActive?)       -> number   effective healing done per minute
+f:GetRawHPS(useActive?)    -> number   healing incl. overheal per second
+f:GetDTPS()                -> number   damage taken per second
+f:GetDTPM()                -> number   damage taken per minute
+f:GetHTPS()                -> number   healing taken per second
+f:GetHTPM()                -> number   healing taken per minute
+f:GetMPS()                 -> number   damage mitigated per second
+f:GetMPM()                 -> number   damage mitigated per minute
+f:GetTotalMitigated()      -> number   shield + block est + armor est +
+                                       avoid est
+
+--- Summaries and breakdowns ---------------------------------------------------
+f:GetSummary()
+    -> FightSummary table (17.6)         every metric in one table
+
+f:GetMaxHit(kind?)                      kind default "damageOut"
+    -> maxValue, aggregate               aggregate is the raw ability
+                                         aggregate (17.7a) or nil
+
+f:GetAbilityBreakdown(kind?, sortBy?, limit?)
+    kind    "damageOut" (default) "healOut" "damageIn" "healIn"
+            "shieldIn" "shieldOut"
+    sortBy  any AbilityRow field, default "total" (always descending)
+    -> array of AbilityRow (17.7)
+
+f:GetTargets(limit?)
+    -> array of TargetRow (17.8)         most damage first
+
+f:GetSources(limit?)
+    -> array of SourceRow (17.8)         who damaged you, most damage first
+
+f:GetDamageTypes(incoming?)
+    -> array of { damageType, name, total, pct }   largest first
+
+f:GetTimeline(field?)
+    field  "dOut" (default) damage done | "hOut" healing done
+           "dIn" damage taken | "hIn" healing taken
+           "mit" damage mitigated | "oh" overheal
+    -> array of numbers                  one value per second, index 1 =
+                                         first second, gaps filled with 0
+
+f:GetRollingRate(field?, windowSec?)    windowSec default 5
+    -> array of numbers                  per-second rolling average
+
+f:GetEffectUptimes(scope?, onlyMine?)
+    scope     "player" (default, buffs on you) | "target" (debuffs on enemies)
+    onlyMine  true = only effects you cast
+    -> array of EffectRow (17.9)         highest uptime first. For targets the
+                                         unit with the best uptime is used.
+
+f:GetProcs()
+    -> array of ProcEntry (17.10)        most activations first
+
+f:GetSets()
+    -> array of FightSet (17.11)         most damage first
+
+f:GetCasts()
+    -> casts, rows
+         casts  Casts table (17.12)
+         rows   array of { id, name, icon, kind, count, firstMs, lastMs },
+                most casts first
+
+f:GetPower(powerType?)
+    -> PowerEntry (17.13) | nil          with powerType
+    -> map powerType -> PowerEntry       without
+
+f:GetDeaths()              -> array of DeathEntry (17.14)
+f:GetBuild()               -> Build (17.19) | nil   build when the fight began
+f:GetStats()               -> FightStats (17.15) | nil
+f:GetGroup()               -> array of GroupRow (17.16)  (group mode only)
+
+--- Raw events ------------------------------------------------------------------
+f:GetEvents()
+    -> array of raw events, oldest first ({} if raw logging was off). Each
+       raw event is an array, indexes in LF.EVENT_FIELDS:
+         [1] TIME (game ms)   [2] DIR (1 out 2 in 3 self 4 group)
+         [3] RESULT           [4] ABILITY id      [5] HIT value
+         [6] OVERFLOW         [7] SOURCE unitId   [8] TARGET unitId
+         [9] DAMAGE_TYPE      [10] POWER_TYPE     [11] SLOT_TYPE
+
+f:GetEventCount()          -> number
+
+f:DecodeEvent(rawEvent)
+    -> DecodedEvent table (17.17)
+
+--- Units --------------------------------------------------------------------------
+f:GetUnitName(unitId)      -> string   "" if unknown
+f:MarkBoss(name)           -> nothing
+
+--- Saving / restoring ------------------------------------------------------------
+f:ToData(includeEvents?)
+    -> plain table                       no functions/metatables, safe for
+                                         SavedVariables. Raw events included
+                                         only when includeEvents is true.
+
+LF.Fight.FromData(data)
+    -> Fight                             same table with methods restored
+    -> nil                               data was not a table
+
+LF.Fight.New(id)
+    -> Fight                             empty fight (normally made by the
+                                         logger)
+
+--- Raw fields you can also read directly ------------------------------------------
+f.id  f.startMs  f.endMs  f.startTimestamp  f.character  f.account
+f.zoneName  f.zoneId  f.mapName  f.endReason  f.totals (17.6a)
+f.abilities[kind][abilityId] (17.7a)  f.targets[unitId]  f.sources[unitId]
+f.healTargets[unitId]  f.healers[unitId]  f.units[unitId] = {name, type}
+f.damageTypesOut[dt]  f.damageTypesIn[dt]  f.results.out[result]
+f.results.inc[result]  f.timeline[sec]  f.effects.player / .target
+f.procs  f.sets  f.casts  f.bars  f.power  f.deaths  f.cc.out / .inc
+f.bosses[name]  f.bossHealth[unitTag]  f.group  f.gearChanges
+f.build  f.stats  f.models (ModelReport at fight end)  f.summary  f.meta
+
+
+===============================================================================
+ 10. SEARCH AND QUERIES
+===============================================================================
+
+LF.Search(query, opts?)
+    query  free text and/or filters:
+             in:ability in:set in:fight in:effect in:proc in:target in:stat
+             in:cast in:event      (several "in:" allowed; none = all kinds,
+                                    except events, which need in:event)
+             id:12345              exact ability / set / effect / proc id
+             fight:7               search inside fight #7
+    opts.limit  default 50
+    opts.fight  Fight to search inside (default: current or last fight)
+    -> array of SearchResult:
+         {
+           kind    "ability" "set" "stat" "fight" "target" "fightAbility"
+                   "effect" "proc" "cast" "event"
+           id      ability id / set id / stat key / fight id / unitId
+           name    string
+           icon    string ("" if none)
+           detail  string  one-line description
+           data    the underlying table (AbilityInfo, SetInfo, Fight,
+                   TargetRow, aggregate, EffectRow, ProcEntry, cast row,
+                   DecodedEvent or the stat value)
+         }
+
+LF.SearchFormatResult(result)           also LF.Search_.FormatResult
+    -> string                            "[kind] icon name (id) detail"
+
+LF.Search_.Parse(query)
+    -> { terms = array, filters = map, kinds = set | nil,
+         text = string, ltext = lower-case text }
+
+LF.FindEvents(fight?, filter?)          fight default: last fight
+    filter (all optional):
+      direction "out"|"in"|"self"|"group"   category (see 16)
+      result  abilityId  abilityName (substring)  source  target (substrings)
+      sourceUnitId  targetUnitId  damageType  crit (true/false)
+      minHit  maxHit  fromMs  toMs (from fight start)
+      limit (default 200)  newestFirst (true)
+    -> array of DecodedEvent (17.17)     {} when no fight or no raw events
+
+LF.NewQuery(fight?)
+    -> Query                             chain the setters, then run it
+    Setters (each -> the same Query):
+      :Direction(d) :Category(c) :Result(r) :Ability(id) :AbilityName(s)
+      :Source(s) :Target(s) :DamageType(dt) :Crit(bool) :MinHit(n)
+      :MaxHit(n) :From(ms) :To(ms) :Limit(n) :NewestFirst()
+    :Run()     -> array of DecodedEvent
+    :Count()   -> number      (no limit unless you set one)
+    :Sum()     -> number      sum of hit values
+    :Max()     -> DecodedEvent | nil   event with the biggest hit
+    example:
+      LibFights.NewQuery(f):Direction("out"):Crit(true):MinHit(10000):Count()
+
+LF.QueryFights(filter?)
+    filter: zone, title, target, character (substrings), minDurationSec,
+            minDPS, sinceTimestamp
+    -> array of Fight                    memory first, then saved fights
+
+
+===============================================================================
+ 11. SAVED DATA / SETTINGS                           LF.Storage.*
+===============================================================================
+
+LF.GetSettings()
+    -> settings table                    the live SavedVariables settings, or
+                                         defaults before the addon loaded.
+                                         Change fields directly. Keys and
+                                         defaults: LF.Storage.DEFAULT_SETTINGS
+
+SaveFight(fight)
+    -> true                              saved (oldest trimmed past
+                                         maxSavedFights)
+    -> false                             SavedVariables not loaded yet
+
+GetSavedFights()                        -> array of Fight
+GetSavedFight(id)                       -> Fight | nil
+DeleteSavedFight(id)                    -> boolean   true if one was removed
+ClearSavedFights()                      -> nothing
+GetSavedFightCount()                    -> number
+ResetSettings()                         -> nothing   restores defaults
+Init()                                  -> nothing   (called on load)
+
+Also exposed as LF.GetSavedFights, LF.DeleteSavedFight, LF.ClearSavedFights.
+
+LF.sv        the whole SavedVariables table (settings, fights, nextFightId,
+             setAbilityRegistry, models)
+LF.settings  = LF.sv.settings (nil until the addon has loaded)
+
+
+===============================================================================
+ 12. TEXT REPORTS                                    LF.Report.*
+===============================================================================
+
+ All "...Lines" functions return an ARRAY OF STRINGS ready for chat (with
+ color codes and |t icon markup). Print them with LF.PrintLines(lines).
+ When the fight is nil they return a one-line message such as "No fight.".
+
+FightSummaryLines(fight)               -> lines   8 lines: all main metrics
+AbilityLines(fight, kind?, limit?)     -> lines   kind default "damageOut",
+                                                  limit default 10
+TargetLines(fight, limit?)             -> lines   limit default 8
+EffectLines(fight, scope?, limit?)     -> lines   scope default "player",
+                                                  limit default 15
+ProcLines(fight, limit?)               -> lines   limit default 15
+SetLines(fight)                        -> lines
+StatLines(fight?)                      -> lines   fight stats (avg/min/max)
+                                                  or the current snapshot
+                                                  when fight is nil
+PowerLines(fight)                      -> lines
+DeathLines(fight)                      -> lines   includes last 5 recap hits
+BuildLines(build?)                     -> lines   reads the build if nil
+ModelLines(report?)                    -> lines   uses GetReport() if nil
+AbilityInfoLines(abilityId)            -> lines
+SetInfoLines(setId)                    -> lines
+AllFightLines(fight)                   -> lines   every report above combined
+
+ShortLiveText(fight)
+    -> string                            4-line text used by the HUD
+                                         ("No fight." if nil)
+
+Export(fight)
+    -> string  "LF1|id|title|durationSec|damage|dps|healing|hps|taken|
+                mitigated|critRate|abilityId:damage;abilityId:damage;..."
+               (top 10 damage abilities)
+    -> ""      when fight is nil
+
+
+===============================================================================
+ 13. HUD AND SETTINGS PANEL
+===============================================================================
+
+LF.HUD.Create()            -> window control  (created once, then reused)
+LF.HUD.Show()              -> nothing
+LF.HUD.Hide()              -> nothing
+LF.HUD.SetShown(bool)      -> nothing   also saves the setting
+LF.HUD.SetLocked(bool)     -> nothing
+LF.HUD.Update()            -> nothing
+LF.HUD.Init()              -> nothing
+
+LF.SettingsUI.Init()       -> nothing   builds the LibAddonMenu or
+                                        LibHarvensAddonSettings panel
+LF.SettingsUI.Refresh()    -> nothing   redraws the panel's text fields
+LF.SettingsUI.SetOutput(key, textOrLines, printToChat?)
+                           -> nothing   key: "live" "build" "models" "search"
+                                        "ability" "scan" "set"
+LF.SettingsUI.usedLibrary  string: which menu library is in use
+
+LF.Slash.Init()            -> nothing   registers /libfights and /lfights
+
+
+===============================================================================
+ 14. CORE HELPERS                                    LF.*
+===============================================================================
+
+LF.IsConsole()             -> boolean   true on PS5 / Xbox
+LF.IsGamepad()             -> boolean   console, or gamepad mode on PC
+LF.Print(fmt, ...)         -> nothing   chat line with the [LibFights] prefix
+                                        (string.format when args are given)
+LF.PrintLines(lines, header?) -> nothing
+LF.Debug(fmt, ...)         -> nothing   prints only when settings.debug is on
+
+LF.name  LF.version ("1.0.0")  LF.versionNum (10000)  LF.isConsole
+LF.initialized  LF.EVENTS  LF.EVENT_FIELDS  LF.fights
+
+
+===============================================================================
+ 15. UTIL HELPERS                                    LF.Util.*
+===============================================================================
+
+Now()                       -> number   game time in ms
+Timestamp()                 -> number   unix time in sec
+Round(v, decimals?)         -> number   0 when v is nil
+Clamp(v, lo, hi)            -> number
+SafeDiv(a, b)               -> number   0 when b is 0 or nil
+Try(fn, ...)                -> fn's returns, or nothing if fn errors or is
+                               not a function
+SafeCall(globalName, ...)   -> same as Try for the global function _G[name]
+Global(name)                -> _G[name]
+Lower(s)                    -> string   "" for nil
+Contains(haystack, needle)  -> boolean  case-insensitive plain substring
+Trim(s)                     -> string
+Fmt(s)                      -> string   zo_strformat("<<1>>", s)
+CleanName(name)             -> string   unit name without grammar suffixes
+CleanAbilityName(name)      -> string
+NormalizeName(name)         -> string   lower case, no punctuation or
+                                        leading "perfected"
+FormatNumber(n)             -> string   "950", "12.3k", "1.25M", "2.00B"
+CommaNumber(n)              -> string   "1,234,567"
+FormatPct(fraction, dec?)   -> string   0.523 -> "52.3%"
+FormatDuration(ms)          -> string   "m:ss.s"  e.g. "1:05.3"
+IconMarkup(path, size?)     -> string   "|tN:N:path|t" or "" if no path
+Count(t)                    -> number   number of keys
+ShallowCopy(t)              -> table
+ToPlain(v)                  -> deep copy without functions, metatables or
+                               keys starting with "_"
+SortedValues(map, field, descending?, limit?) -> array of map values
+SortedKeys(map)             -> array of keys
+NewRing(capacity)           -> Ring buffer
+    ring:Push(v) -> nothing        ring:Get(i) -> value | nil  (1 = oldest)
+    ring:Newest() -> value | nil   ring:Count() -> number
+    ring:ToArray() -> array        ring:Last(n) -> array (newest n, oldest
+                                                  first)
+    ring:Clear() -> nothing
+RestoreRing(data)           -> Ring | nil  (from saved data or a plain array)
+Throttle(key, ms, fn)       -> true if fn ran, false if throttled
+
+
+===============================================================================
+ 16. CONSTANTS                                       LF.Const.*
+===============================================================================
+
+GetResultCategory(result)   -> string, one of:
+    "damage" "heal" "shield" "avoid" "cc" "death" "power" "cast" "effect"
+    "other"
+GetResultName(result)       -> string  e.g. "CRITICAL_DAMAGE" (or the number
+                                       as text if unknown)
+GetDamageTypeName(dt)       -> string  localized name, else e.g. "FIRE", else
+                                       the number; "?" for nil
+GetPowerName(powerType)     -> string  "Health" "Magicka" "Stamina"
+                                       "Ultimate" or the number
+IsPlayerOrPet(unitType)     -> boolean
+
+Tables:
+  RESULT[name] -> value       RESULT_NAME[value] -> name
+  CATEGORY[value] -> category string
+  DAMAGE_RESULTS HEAL_RESULTS CRIT_RESULTS TICK_RESULTS SHIELD_RESULTS
+  AVOID_RESULTS CC_RESULTS DEATH_RESULTS POWER_RESULTS CAST_RESULTS
+  EFFECT_RESULTS          sets: value -> true
+  DAMAGE_TYPE[name] / DAMAGE_TYPE_NAME[value]
+  SPELL_DAMAGE_TYPES  PHYSICAL_DAMAGE_TYPES   sets
+  UNIT_TYPE[name] / UNIT_TYPE_NAME[value]
+  UT_PLAYER UT_PET UT_GROUP UT_DUMMY UT_COMPANION UT_OTHER UT_NONE
+  POWER_HEALTH POWER_MAGICKA POWER_STAMINA POWER_ULTIMATE  POWER_NAME
+  EFFECT_GAINED EFFECT_FADED EFFECT_UPDATED EFFECT_FULL_REFRESH
+  EFFECT_TRANSFER BUFF DEBUFF
+  LIGHT_ATTACK_SLOT (1) HEAVY_ATTACK_SLOT (2) FIRST_SKILL_SLOT (3)
+  ULTIMATE_SLOT (8) HOTBAR_PRIMARY HOTBAR_BACKUP HOTBAR_CHAMPION
+  WEAPON_PAIR_MAIN (1) WEAPON_PAIR_BACKUP (2)
+  EQUIP_SLOTS  array of { id, key, name, isBackup, isWeapon, isPoison }
+  EQUIP_SLOT_NAME[slotId] -> name
+  SET_TYPE_NAME[setType] -> name
+  STATS  array of { key, id, global, label }     STAT_LABEL[key] -> label
+  RESIST_PER_PERCENT 660  RESIST_FOR_FULL 66000  MAX_ARMOR_MITIGATION 0.5
+  DEFAULT_TARGET_RESISTANCE 18200  CRIT_RATING_PER_PERCENT 219.12
+  BASE_CRIT_DAMAGE 0.5  MAX_BOSSES
+
+LF.Fight.DIR       { OUT = 1, IN = 2, SELF = 3, GROUP = 4 }
+LF.Fight.DIR_NAME  { [1] "out", [2] "in", [3] "self", [4] "group" }
+
+
+===============================================================================
+ 17. DATA STRUCTURES
+===============================================================================
+
+17.1 AbilityInfo  (LF.Abilities.GetInfo)
+    id                  number
+    name                string   formatted name
+    rawName             string   name as the game returns it
+    icon                string   texture path ("UI icon")
+    iconMarkup          string   |t24:24:icon|t
+    description         string
+    descriptionHeader   string
+    durationMs          number
+    isChanneled         boolean
+    castTimeMs          number
+    channelTimeMs       number
+    minRange, maxRange  number   centimeters (divide by 100 for meters)
+    radius              number   centimeters
+    angleDistance       number
+    targetDescription   string
+    isPassive           boolean
+    isPermanent         boolean
+    cost                number
+    costMechanic        number | nil   power type of the cost
+    costIsPerTick       boolean
+    (The "graphic" id of an ability, sent by combat events, is stored on
+     fight ability aggregates and rows: field "graphic".)
+
+17.2 SkillEntry  (GetPlayerSkillAbilities)
+    abilityId, name, icon, passive, ultimate, purchased, rank, earnedRank,
+    progressionIndex, skillType, skillLineIndex, skillLineId, skillLine
+
+17.3 ScanProgress
+    running   boolean
+    fromId, toId, nextId   numbers (absent if no scan was ever started)
+    found     number   abilities found by this scan
+    pct       number 0..1
+    indexed   number   total abilities in the search index
+    elapsedMs number   (absent if no scan was ever started)
+
+17.4 SetInfo  (LF.Sets.GetSetInfo)
+    setId               number
+    name                string
+    setType             number | nil
+    setTypeName         string   e.g. "DUNGEON", "UNKNOWN"
+    numCollectionPieces number
+    unperfectedSetId    number | nil   for perfected sets
+    sampleLink          string | nil
+    numBonuses          number | nil
+    maxEquipped         number | nil   pieces for the full bonus
+    bonuses             array of { numRequired, description, isPerfected }
+
+17.5 EquippedSet  (LF.Sets.GetEquippedSets, Build.sets)
+    setId, name, numBonuses
+    equipped        number   pieces counted by the game (active bar only)
+    perfected       number   perfected pieces
+    maxEquipped     number
+    fullBonus       boolean
+    slots           array of { slot, slotName, inactiveBar }
+    activeBonuses   array of { numRequired, description, isPerfected }
+    inactiveBonuses array of { numRequired, description, isPerfected }
+    sampleLink      string
+
+17.6 FightSummary  (f:GetSummary(), also f.summary)
+    Identity
+      id title zone zoneId character startTimestamp durationMs durationSec
+      activeSec isActive
+    Damage done
+      damage dps dpm activeDPS bossDamage bossDPS
+      damageShielded             your damage absorbed by enemy shields
+      damageIncludingShields
+      dotDamage directDamage dotShare(0..1) overkill
+    Healing done
+      healing hps hpm rawHealing rawHPS overheal overhealPct(0..1)
+      selfHealing
+    Taken
+      damageTaken dtps dtpm healingTaken htps htpm
+    Mitigation (shield exact, others estimated)
+      mitigated mps mpm mitigatedShield mitigatedBlockEst mitigatedArmorEst
+      mitigatedAvoidEst mitigationPct(0..1 of mitigated + taken)
+    Hits
+      hits crits critRate(0..1) ticks avgHit maxHit maxHitAbilityId
+      maxHitAbility healCritRate maxHeal maxHealAbility incomingHits
+      incomingCritRate blockedHits dodges misses immune
+    Actions
+      casts skillCasts lightAttacks heavyAttacks ultimates apm
+      skillsPerMinute weaves weaveRatio(0..1) avgSkillGapMs barSwaps
+      frontBarPct backBarPct (0..1)
+    Other
+      killingBlows deaths interruptsOut interruptsIn ccOut ccIn powerGained
+      procActivations numTargets numAbilities
+
+17.6a f.totals  (raw totals, all numbers)
+    damageOut damageOutNormal damageOutCrit damageOutDot damageOutDirect
+    hitsOut critsOut ticksOut overkill damageOutShielded damageOutBlocked
+    bossDamage healOut healOutNormal healOutCrit overheal healHitsOut
+    healCritsOut healTicksOut selfHeal damageIn hitsIn critsIn healIn
+    overhealIn healHitsIn shieldAbsorbedIn blockedHitsIn blockedDamageIn
+    mitigatedShield mitigatedBlockEst mitigatedArmorEst mitigatedAvoidEst
+    dodgesIn missesIn parriesIn immuneIn reflectsIn absorbsIn blockedFullIn
+    avoidedOut interruptsOut interruptsIn ccOut ccIn killingBlows deaths
+    powerGained powerDrained
+
+17.7 AbilityRow  (f:GetAbilityBreakdown)
+    id name icon graphic damageType
+    total        number
+    pct          0..1 share of this kind
+    dps dpm      per second / minute over the fight
+    hits crits critRate(0..1)
+    avg avgNormal avgCrit min max
+    ticks tickTotal directHits directTotal
+    overflow     overkill (damage) or overheal (heals)
+    results      map ACTION_RESULT value -> count
+
+17.7a raw aggregate  (f.abilities[kind][abilityId])
+    id name icon graphic slotType damageType powerType total normalTotal
+    critTotal hits crits ticks tickTotal directHits directTotal min max
+    overflow firstMs lastMs results
+
+17.8 TargetRow  (f:GetTargets)
+    unitId name damage hits crits isBoss killed dps critRate activeSec
+    pct (0..1 of your damage) abilities (map abilityId -> damage)
+   SourceRow  (f:GetSources)
+    unitId name damage hits crits pct (0..1 of damage taken)
+    abilities (map abilityId -> damage)
+
+17.9 EffectRow  (f:GetEffectUptimes)
+    id name icon effectType castByPlayer uptimeMs uptimePct(0..1)
+    gains refreshes fades maxStacks unitName
+
+17.10 ProcEntry  (f:GetProcs, PROC callback)
+    id name icon
+    kind            "set" | "candidate"   candidate = not slotted, no set
+    setId setName   (nil when not linked to a set)
+    sources         set of "damage" | "heal" | "effect"
+    sourceList      string, e.g. "damage,effect"   (after the fight)
+    external        true if the buff came from another player
+    activations hits damage healing
+    firstMs lastMs  game ms
+    minGapMs gapSum gapCount
+    times           array of ms from fight start (up to 120)
+    -- filled when the fight ends:
+    perMinute avgGapMs
+    estimatedCooldownMs   minGapMs once there are 3+ activations, else nil
+    uptimeMs uptimePct    when the proc is also a buff/debuff
+    damageSharePct        0..1
+
+17.11 FightSet  (f:GetSets, f.sets[setId])
+    setId name equippedInFight equipped perfected maxEquipped fullBonus
+    activeBonuses damage healing hits activations
+    abilities (set abilityId -> true)
+    -- filled when the fight ends:
+    uptimeMs uptimePct(0..1) damageSharePct healingSharePct (0..1)
+    activationsPerMinute abilityIds (array)
+
+17.12 Casts  (f:GetCasts first return, f.casts)
+    total light heavy skills ultimates other weaves
+    skillGapSum skillGapCount
+    abilities  map abilityId -> { id, name, icon, kind, count, firstMs,
+               lastMs }
+    server     map abilityId -> count of server "BEGIN" results
+
+17.13 PowerEntry  (f:GetPower)
+    powerType name gained spent
+    gainedBy      map abilityId -> amount
+    min max sum n maxValue last
+    timeAtZeroMs
+    samples       array of { msFromStart, value, maxValue } (every 250 ms)
+
+17.14 DeathEntry  (f:GetDeaths, DEATH callback)
+    unitTag name tMs (ms from fight start)
+    recap   array (player deaths only) of
+            { tMs, result, resultName, abilityId, abilityName, hit,
+              overflow, source, damageType }
+
+17.15 FightStats  (f:GetStats)
+    start  StatSnapshot at fight start      end  last snapshot
+    min max avg sum   map statKey -> number
+    n                 samples taken
+    samples           array of changes only: { t = ms, statKey = value ... }
+
+17.16 GroupRow  (f:GetGroup, group mode)
+    unitId name damage healing hits crits
+    abilities  map abilityId -> { id, name, total, hits }
+
+17.17 DecodedEvent  (FindEvents, f:DecodeEvent, Query:Run)
+    tMs time direction("out"|"in"|"self"|"group") result resultName
+    category isCrit abilityId abilityName icon hit overflow
+    sourceUnitId source targetUnitId target damageType damageTypeName
+    powerType slotType
+
+17.18 StatSnapshot  (LF.Stats.GetSnapshot)
+    Every stat the client supports, by key:
+      maxHealth maxMagicka maxStamina healthRegenCombat magickaRegenCombat
+      staminaRegenCombat healthRegenIdle magickaRegenIdle staminaRegenIdle
+      spellPower weaponPower weaponAndSpellDamage spellCritical
+      weaponCritical criticalChance spellPenetration physicalPenetration
+      spellResist physicalResist criticalResistance armorRating attackPower
+      mitigation spellMitigation block dodge miss parry healingTaken
+      healingDone damageDone damageTaken
+    (a key is missing if the game version does not have that stat)
+    Resources:
+      healthCurrent healthPowerMax magickaCurrent magickaPowerMax
+      staminaCurrent staminaPowerMax ultimateCurrent ultimatePowerMax
+    Derived:
+      spellCritPct weaponCritPct          crit chance 0..100
+      spellResistPct physicalResistPct    armor mitigation 0..100
+      timestampMs
+
+17.19 Build  (LF.Build.Read)
+    timestamp apiVersion libVersion console
+    character  { name displayName level championPoints classId className
+                 raceId raceName alliance allianceName gender zoneName
+                 zoneId inGroup groupSize isVampire isWerewolf }
+    attributes { health magicka stamina unspent }
+    stats      StatSnapshot
+    gear       map equipSlot -> Item (17.20)
+    armorCounts { light medium heavy }
+    sets       map setId -> EquippedSet (17.5)
+    activeWeaponPair  1 | 2
+    bars       { front = map slot -> BarSlot, back = map slot -> BarSlot }
+    champion   { slotted = array of { slot championSkillId name points },
+                 totalEarned }
+    buffs      array of Buff
+    mundus     array of { name abilityId icon }
+    longBuffs  array of Buff
+    skills     array of SkillEntry   (only with detail "full")
+    signature  string
+
+17.20 Item  (Build.ReadItem / build.gear)
+    link name itemId icon setId setName traitType traitName
+    traitDescription quality displayQuality armorType weaponType equipType
+    enchantHeader enchantDescription requiredLevel requiredCP armorRating
+    weaponPower isMythic
+    -- inside build.gear also: slot slotName isBackup
+
+17.21 BarSlot  (Build.ReadBar)
+    slot abilityId crafted(boolean, scribed skill) slotType name icon
+    isUltimate
+
+17.22 Buff  (Build.ReadBuffs)
+    name abilityId icon stacks effectType abilityType statusEffectType
+    buffSlot canClickOff castByPlayer remainingSec(nil if permanent)
+    permanent
+
+17.23 ModelReport  (LF.Models.GetReport, f.models)
+    crit                      GetCritEstimate() result
+    targets                   array of TargetEstimate
+    incoming                  GetIncomingDR() result
+    ttk                       GetAllTTK() result
+    dpsForecast               number | nil  (5 seconds ahead)
+    referenceAbilitiesTrained number
+    referenceSamples          number
+    trainedHits               number
+    abilitiesModeled          number
+
+17.24 TargetEstimate  (LF.Models.GetTargetEstimate)
+    name samples relativeSamples confidence(0..1)
+    -- when calibrated (samples > 0):
+    predictedMitigation     0..1 total damage reduction on that target
+    predictedMitigationStd
+    predictedDRPct          0..100
+    predictedResistance     resistance points
+    predictedResistanceStd
+    penetrationUsed         your penetration on the last sample
+    penetrationToCap        resistance minus that penetration
+    missingPenetration      resistance minus your current highest pen
+    overPenetratedPct cappedPct   0..1 share of samples
+    status   "ok" | "over-penetrated (resistance <= your penetration)"
+             | "capped / extra damage reduction"
+    -- when only relative data exists (relativeSamples > 0):
+    relativeDamageTaken     ratio vs your average target (1 = same)
+    relativeToughnessPct    0..100, (1 - ratio) * 100
+
+
+===============================================================================
+ 18. INTERNAL FUNCTIONS
+===============================================================================
+ Called by the logger while logging. You normally never call these, but they
+ are public if you want to feed data in yourself.
+
+ Fight recording (all on a Fight object):
+   f:RecordOutgoing(cat, result, abilityId, abilityName, graphic, slotType,
+                    targetUnitId, hit, overflow, damageType, powerType, now)
+                                                       -> nothing
+   f:RecordIncoming(cat, result, abilityId, abilityName, graphic, slotType,
+                    sourceUnitId, hit, overflow, damageType, powerType, now,
+                    isSelf)                            -> nothing
+   f:RecordGroup(cat, result, abilityId, abilityName, sourceUnitId, hit,
+                 now)                                  -> nothing
+   f:RecordEffect(scope, changeType, abilityId, effectName, unitId,
+                  unitName, stackCount, iconName, effectType, sourceType,
+                  now)                                 -> effect entry
+   f:RecordPower(powerType, value, maxValue, now)      -> nothing
+   f:RecordBossHealth(unitTag, name, current, max, now) -> nothing
+   f:RecordCast(slotIndex, abilityId, now)             -> kind string
+   f:RecordBarSwap(activePair, now)                    -> nothing
+   f:RecordDeath(unitTag, unitName, now, recap)        -> DeathEntry
+   f:RecordGearChange(slotIndex, now)                  -> nothing
+   f:NoteUnit(unitId, name, unitType)                  -> {name, type} | nil
+   f:PushEvent(rawEvent)                               -> nothing
+   f:CloseOpenIntervals(now)                           -> nothing
+   f:Finish(endMs?)                                    -> nothing
+
+ Per-fight trackers:
+   LF.Stats.BeginTracking(f) -> nothing   LF.Stats.Sample(f, snap?) ->
+   StatSnapshot | nil   LF.Stats.FinishTracking(f) -> nothing
+   LF.Sets.BeginTracking(f) -> nothing    LF.Sets.Attribute(f, abilityId,
+   name, cat, amount, isActivation) -> setId | nil
+   LF.Sets.FinishTracking(f) -> nothing
+   LF.Procs.BeginTracking(f) / ObserveCombat(...) / ObserveEffect(...) /
+   FinishTracking(f) -> nothing
+
+ Model feeding:
+   LF.Models.ObserveOutgoing(abilityId, result, hit, damageType, targetName,
+                             targetType, isCrit, isTick)   -> nothing
+   LF.Models.ObserveIncoming(abilityId, result, hit, damageType, sourceName,
+                             isCrit)                       -> nothing
+   LF.Models.ObserveUnitHealth(key, name, current, max, tSec) -> nothing
+   LF.Models.ObserveDPS(dps)                               -> nothing
+   LF.Models.ResetFightTransient()                         -> nothing
