@@ -17,13 +17,18 @@ local function PrintStats()
         M.Print("No fight recorded yet.")
         return
     end
-    M.Print(format("%s fight | HPS %s | HPM %s | SPS %s | SPM %s | Shield %s",
+    M.Print(format("%s fight | HPS %s | HPM %s | Heal Personal %s / Group %s",
         stats.active and "Current" or "Last",
-        Fmt(stats.hps), Fmt(stats.hpm), Fmt(stats.sps), Fmt(stats.spm), Fmt(stats.shieldTotal)))
+        Fmt(stats.hps), Fmt(stats.hpm), Fmt(stats.healPersonal), Fmt(stats.healGroup)))
+    M.Print(format("SPS %s | SPM %s | Shield %s | Personal %s / Group %s",
+        Fmt(stats.sps), Fmt(stats.spm), Fmt(stats.shieldTotal), Fmt(stats.shieldPersonal),
+        stats.groupMode and Fmt(stats.shieldGroup) or "- (group mode off)"))
+    M.Print(format("Mitigated %s | MPS %s | MPM %s | %.1f%% of incoming",
+        Fmt(stats.mitigated), Fmt(stats.mps), Fmt(stats.mpm), stats.mitigatedPct))
 end
 
 local function PrintHelp()
-    M.Print("/bloomhps - show HPS / HPM / SPS / SPM and shield total for the current or last fight")
+    M.Print("/bloomhps - show healing, shielding and mitigation for the current or last fight")
     M.Print("/bloomhps help - show this list")
 end
 

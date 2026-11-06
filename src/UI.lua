@@ -76,13 +76,31 @@ end
 
 function UI.BuildText(stats)
     local saved = M.saved
-    local lines = {
-        Colorize(saved.labelColor, format("HPS: %s  HPM: %s", Fmt(stats.hps), Fmt(stats.hpm))),
-    }
-    if saved.showShields then
-        lines[2] = Colorize(saved.shieldColor, format("SPS: %s  SPM: %s  Shield: %s",
-            Fmt(stats.sps), Fmt(stats.spm), Fmt(stats.shieldTotal)))
+    local lines = {}
+    local function Add(color, text) lines[#lines + 1] = Colorize(color, text) end
+
+    Add(saved.labelColor, format("HPS: %s  HPM: %s", Fmt(stats.hps), Fmt(stats.hpm)))
+    if saved.showSplits then
+        Add(saved.labelColor, format("Heal Personal: %s  Group: %s",
+            Fmt(stats.healPersonal), Fmt(stats.healGroup)))
     end
+
+    if saved.showShields then
+        Add(saved.shieldColor, format("SPS: %s  SPM: %s  Shield: %s",
+            Fmt(stats.sps), Fmt(stats.spm), Fmt(stats.shieldTotal)))
+        if saved.showSplits then
+            -- group shields are only recorded in LibFights group mode
+            local group = stats.groupMode and Fmt(stats.shieldGroup) or "-"
+            Add(saved.shieldColor, format("Shield Personal: %s  Group: %s",
+                Fmt(stats.shieldPersonal), group))
+        end
+    end
+
+    if saved.showMitigation then
+        Add(saved.mitigationColor, format("Mitigated: %s  MPS: %s  (%.1f%%)",
+            Fmt(stats.mitigated), Fmt(stats.mps), stats.mitigatedPct))
+    end
+
     return table.concat(lines, "\n")
 end
 

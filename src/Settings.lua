@@ -69,7 +69,24 @@ function Settings.Create()
         Color("Healing Color", "labelColor", M.DEFAULT_HEAL_COLOR),
 
         { type = "header", name = "Shielding" },
-        Checkbox("Show Shield Line (SPS / SPM / total)", "showShields"),
+        Checkbox("Show Shield Lines (SPS / SPM / total)", "showShields"),
         Color("Shielding Color", "shieldColor", M.DEFAULT_SHIELD_COLOR),
+
+        { type = "header", name = "Personal / Group" },
+        Checkbox("Show Personal / Group Splits", "showSplits"),
+        {
+            type = "checkbox", name = "Track Group Shields (LibFights group mode)",
+            tooltip = "Needed for the group shield number. Makes LibFights also read group "
+                .. "members' combat events, which costs a little more in big fights. "
+                .. "Takes effect after /reloadui. Ignored if another add-on already started LibFights.",
+            getFunc = function() return M.saved.groupMode end,
+            setFunc = function(value) M.saved.groupMode = value end,
+            default = M.defaults.groupMode,
+            requiresReload = true,
+        },
+
+        { type = "header", name = "Damage Mitigated" },
+        Checkbox("Show Mitigation Line", "showMitigation"),
+        Color("Mitigation Color", "mitigationColor", M.DEFAULT_MITIGATION_COLOR),
     })
 end
