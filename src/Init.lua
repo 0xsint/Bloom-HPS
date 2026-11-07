@@ -30,6 +30,9 @@ local function StartTicking()
 end
 
 local function MigrateSettings(saved)
+    for key, swap in pairs(M.OLD_DEFAULT_COLORS) do
+        if saved[key] == swap[1] then saved[key] = swap[2] end
+    end
     saved.labelColor  = M.SanitizeHex(saved.labelColor, M.DEFAULT_HEAL_COLOR)
     saved.shieldColor = M.SanitizeHex(saved.shieldColor, M.DEFAULT_SHIELD_COLOR)
     saved.mitigationColor = M.SanitizeHex(saved.mitigationColor, M.DEFAULT_MITIGATION_COLOR)

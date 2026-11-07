@@ -51,7 +51,8 @@ function Settings.Create()
     LAM:RegisterAddonPanel(panelName, {
         type = "panel",
         name = M.title,
-        displayName = M.title,
+        displayName = string.format("|t28:28:%s|t |cffb3d1%s|r |t28:28:%s|t",
+            M.Texture("flower_sakura"), M.title, M.Texture("flower_lavender")),
         author = M.author,
         version = M.version,
         registerForRefresh = true,
@@ -64,6 +65,11 @@ function Settings.Create()
         Slider("Position X", "labelX", 0, 2000, 1),
         Slider("Position Y", "labelY", 0, 2000, 1),
         Slider("Scale", "scale", 0.1, 10, 0.05),
+        Checkbox("Show Title", "showTitle"),
+
+        { type = "header", name = "Flowers" },
+        Checkbox("Show Flowers & Sparkles", "showFlowers"),
+        Slider("Flower Opacity", "flowerAlpha", 0, 1, 0.05),
 
         { type = "header", name = "Healing" },
         Color("Healing Color", "labelColor", M.DEFAULT_HEAL_COLOR),

@@ -13,9 +13,18 @@ M.author  = "Vixen Hunny"
 
 M.TICK_MS = 500 -- how often the meter redraws while a fight is running
 
-M.DEFAULT_HEAL_COLOR   = "9ff8ba"
-M.DEFAULT_SHIELD_COLOR = "b8f7ff"
-M.DEFAULT_MITIGATION_COLOR = "d6ffd6"
+-- pastel pink / lavender / mint
+M.DEFAULT_HEAL_COLOR   = "ffb3d1"
+M.DEFAULT_SHIELD_COLOR = "c9b8ff"
+M.DEFAULT_MITIGATION_COLOR = "a8ecd0"
+
+-- defaults from before the pastel restyle, swapped for the new ones on load
+-- if the player never changed them
+M.OLD_DEFAULT_COLORS = {
+    labelColor      = { "9ff8ba", M.DEFAULT_HEAL_COLOR },
+    shieldColor     = { "b8f7ff", M.DEFAULT_SHIELD_COLOR },
+    mitigationColor = { "d6ffd6", M.DEFAULT_MITIGATION_COLOR },
+}
 
 M.defaults = {
     showLabel   = true,
@@ -29,6 +38,9 @@ M.defaults = {
     showMitigation = true,
     mitigationColor = M.DEFAULT_MITIGATION_COLOR,
     groupMode   = true,  -- LibFights group mode (needed for group shields)
+    showTitle   = true,
+    showFlowers = true,
+    flowerAlpha = 0.6,
 }
 
 local floor, format = math.floor, string.format
@@ -66,6 +78,59 @@ function M.HexToRGBA(hex, alpha)
     local g = tonumber(hex:sub(3, 4), 16) or 255
     local b = tonumber(hex:sub(5, 6), 16) or 255
     return r / 255, g / 255, b / 255, alpha or 1
+end
+
+-- Texture paths: the game wants them relative to the AddOns folder, and the
+-- folder name may differ from M.name, so a few spellings are tried in turn
+-- (the UI moves to the next one if the panel texture fails to load).
+local textureRoots, textureRootIndex
+
+function M.GetAddOnRootPath()
+    local manager = GetAddOnManager and GetAddOnManager()
+    if not (manager and manager.GetAddOnRootDirectoryPath) then return nil end
+    for i = 1, manager:GetNumAddOns() do
+        if manager:GetAddOnInfo(i) == M.name then
+            return manager:GetAddOnRootDirectoryPath(i)
+        end
+    end
+end
+
+function M.TextureRoots()
+    if textureRoots then return textureRoots end
+    textureRoots = {}
+    local seen = {}
+    local function Add(root)
+        if root and not seen[root] then
+            seen[root] = true
+            textureRoots[#textureRoots + 1] = root
+        end
+    end
+    local rootPath = M.GetAddOnRootPath()
+    local folder = rootPath and rootPath:match("[Aa]dd[Oo]ns/(.-)/?$")
+    if folder and folder ~= "" then
+        Add("/" .. folder .. "/")
+        Add(folder .. "/")
+    end
+    Add("/" .. M.name .. "/")
+    Add(M.name .. "/")
+    textureRootIndex = 1
+    return textureRoots
+end
+
+function M.TextureRoot()
+    return M.TextureRoots()[textureRootIndex]
+end
+
+-- Moves to the next candidate root; returns false when none are left.
+function M.NextTextureRoot()
+    local roots = M.TextureRoots()
+    if textureRootIndex >= #roots then return false end
+    textureRootIndex = textureRootIndex + 1
+    return true
+end
+
+function M.Texture(name)
+    return M.TextureRoot() .. "textures/" .. name .. ".dds"
 end
 
 function M.Print(msg)

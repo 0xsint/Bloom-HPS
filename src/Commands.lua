@@ -27,15 +27,25 @@ local function PrintStats()
         Fmt(stats.mitigated), Fmt(stats.mps), Fmt(stats.mpm), stats.mitigatedPct))
 end
 
+local function PrintTextureInfo()
+    M.Print("Add-on folder: " .. tostring(M.GetAddOnRootPath()))
+    M.Print("Texture path: " .. M.Texture("panel"))
+    M.Print("Textures loaded: " .. tostring(M.UI.TexturesLoaded()))
+end
+
 local function PrintHelp()
     M.Print("/bloomhps - show healing, shielding and mitigation for the current or last fight")
+    M.Print("/bloomhps textures - show where the flower textures are loaded from")
     M.Print("/bloomhps help - show this list")
 end
 
 function Commands.Register()
     SLASH_COMMANDS["/bloomhps"] = function(args)
-        if args and args:lower():match("^%s*help") then
+        args = args and args:lower() or ""
+        if args:match("^%s*help") then
             PrintHelp()
+        elseif args:match("^%s*tex") then
+            PrintTextureInfo()
         else
             PrintStats()
         end
