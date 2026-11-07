@@ -44,6 +44,7 @@ Bloom HPS calls `Start_Logging()` for you when it loads. LibFights records nothi
 |---|---|
 | `/bloomhps` | Print healing, shielding (with personal / group splits) and mitigation for the current or last fight |
 | `/bloomhps help` | List commands |
+| `/bloomhps textures` | Show which texture path is in use and whether each candidate path loaded |
 
 ## Settings
 
@@ -89,6 +90,16 @@ From the LibFights fight object (`LibFights.GetLastFight()`):
 | Mitigated | `fight:GetTotalMitigated()` |
 | MPS | `fight:GetMPS()` |
 | Mitigated % | `mitigated / (mitigated + totals.damageIn)` |
+
+## Textures (PC and console)
+
+Textures load in the background, and only once the game draws them. Consoles take much longer than PC to get past the loading screen. Bloom HPS therefore checks its textures like this:
+
+- It waits until the loading screen is gone (`EVENT_PLAYER_ACTIVATED`).
+- It tries every candidate folder spelling (`/HPSMeter/`, `HPSMeter/`, and the folder name reported by the game) at the same time, then uses the first one that loads.
+- If nothing has loaded after 20 seconds, it shows a plain background and keeps checking every 5 seconds. When a texture loads later, the flowers come back.
+
+After installing or updating the addon, **fully restart the game**, especially on console. `/reloadui` does not pick up new texture files. On console, also make sure the `textures/` folder is included in the package you upload.
 
 ## Known limitations
 

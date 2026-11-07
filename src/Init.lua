@@ -73,6 +73,14 @@ local function OnAddOnLoaded(_, addonName)
 
     M.Commands.Register()
 
+    -- Check the textures once the loading screen is gone: the game only loads
+    -- textures it draws, and consoles take much longer to get there than PC.
+    local function OnPlayerActivated()
+        EVENT_MANAGER:UnregisterForEvent(M.name .. "_Activated", EVENT_PLAYER_ACTIVATED)
+        M.UI.VerifyTextures()
+    end
+    EVENT_MANAGER:RegisterForEvent(M.name .. "_Activated", EVENT_PLAYER_ACTIVATED, OnPlayerActivated)
+
     -- DependsOn guarantees LibFights loaded first, but wait for its
     -- initialisation just in case.
     if LibFights.initialized then

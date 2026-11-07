@@ -29,8 +29,11 @@ end
 
 local function PrintTextureInfo()
     M.Print("Add-on folder: " .. tostring(M.GetAddOnRootPath()))
-    M.Print("Texture path: " .. M.Texture("panel"))
+    M.Print("Texture path in use: " .. M.Texture("panel"))
     M.Print("Textures loaded: " .. tostring(M.UI.TexturesLoaded()))
+    for _, state in ipairs(M.UI.GetProbeStates()) do
+        M.Print(format("  %s -> %s", state.path, state.loaded and "loaded" or "not loaded"))
+    end
 end
 
 local function PrintHelp()
