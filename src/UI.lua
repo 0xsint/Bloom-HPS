@@ -94,6 +94,24 @@ local DECOR = {
     { "flower_sakura",   RIGHT,       -0.28,  0.00, 5.0, 0.22,  0.35, true },
 }
 
+-- One tiny, almost invisible texture per candidate folder spelling. They are
+-- never hidden while checking, because the game only loads textures it draws.
+local probes = {}
+local workingProbe -- index of the path that loaded, once the check is done
+
+local function CreateProbes(wm)
+    for i, root in ipairs(M.TextureRoots()) do
+        local probe = wm:CreateControl(nil, controls.root, CT_TEXTURE)
+        probe:SetTexture(root .. "textures/panel.dds")
+        probe:SetDimensions(4, 4)
+        probe:SetAlpha(0.01)
+        probe:SetAnchor(TOPLEFT, controls.frame, TOPLEFT, 0, 0)
+        probe:SetDrawLevel(0)
+        probe:SetMouseEnabled(false)
+        probes[i] = probe
+    end
+end
+
 function UI.Create()
     local wm = WINDOW_MANAGER
     local root = wm:CreateTopLevelWindow("HPSMeterControl")
@@ -130,8 +148,9 @@ function UI.Create()
         controls.decor[i] = tex
     end
 
+    CreateProbes(wm)
     UI.ApplyLayout()
-    UI.VerifyTextures()
+    -- texture checking starts from Init once the loading screen is gone
 end
 
 function UI.ReloadTextures()
@@ -139,29 +158,73 @@ function UI.ReloadTextures()
     UI.Refresh()
 end
 
+-- Whether the panel texture on the path in use has loaded.
 function UI.TexturesLoaded()
     local probe = controls.panel and controls.panel[5]
     return probe and probe:IsTextureLoaded() or false
 end
 
--- Textures load asynchronously; if the panel still isn't loaded after a short
--- wait, try the next path spelling.
-function UI.VerifyTextures()
-    zo_callLater(function()
-        -- hidden textures may never load, so only judge while the meter shows
-        if UI.TexturesLoaded() or not M.saved.showLabel then return end
-        if M.NextTextureRoot() then
-            UI.ReloadTextures()
-            UI.VerifyTextures()
-        else
-            -- no path worked: show a plain backdrop instead of white boxes
-            controls.fallback = true
+-- Loaded state of every candidate path, for /bloomhps textures.
+function UI.GetProbeStates()
+    local states = {}
+    for i, root in ipairs(M.TextureRoots()) do
+        local probe = probes[i]
+        local loaded = i == workingProbe or (probe and not workingProbe and probe:IsTextureLoaded()) or false
+        states[i] = { path = root .. "textures/panel.dds", loaded = loaded }
+    end
+    return states
+end
+
+-- Texture checking. Textures load in the background and only once drawn, and
+-- consoles are much slower than PC, so this:
+--   * starts after the loading screen (called from Init on EVENT_PLAYER_ACTIVATED)
+--   * checks every candidate path at the same time
+--   * shows the plain backdrop only after FALLBACK_AFTER_MS with nothing loaded,
+--     and keeps checking afterwards so the flowers come back if a path loads late.
+local VERIFY_NAME = M.name .. "_TextureCheck"
+local CHECK_INTERVAL_MS = 1000
+local SLOW_INTERVAL_MS  = 5000
+local FALLBACK_AFTER_MS = 20000
+local verifyStartMs
+
+local function FirstLoadedProbe()
+    for i, probe in ipairs(probes) do
+        if probe:IsTextureLoaded() then return i end
+    end
+    return nil
+end
+
+local function CheckTextures()
+    local index = FirstLoadedProbe()
+    if index then
+        EVENT_MANAGER:UnregisterForUpdate(VERIFY_NAME)
+        workingProbe = index
+        for _, probe in ipairs(probes) do probe:SetHidden(true) end
+        if M.SetTextureRoot(index) then UI.ReloadTextures() end
+        if controls.fallback then
+            controls.fallback = false
             UI.ApplyLayout()
-            M.Print("Could not load the flower textures (if you just added them, fully "
-                .. "restart the game; /reloadui doesn't pick up new files). "
-                .. "Type /bloomhps textures for details.")
         end
-    end, 1500)
+        return
+    end
+
+    if not controls.fallback and GetGameTimeMilliseconds() - verifyStartMs >= FALLBACK_AFTER_MS then
+        -- nothing yet: plain backdrop instead of white boxes, but keep looking
+        controls.fallback = true
+        UI.ApplyLayout()
+        M.Print("Flower textures haven't loaded yet, showing a plain background for now. "
+            .. "If you just installed or updated the add-on, fully restart the game. "
+            .. "Type /bloomhps textures for details.")
+        EVENT_MANAGER:UnregisterForUpdate(VERIFY_NAME)
+        EVENT_MANAGER:RegisterForUpdate(VERIFY_NAME, SLOW_INTERVAL_MS, CheckTextures)
+    end
+end
+
+function UI.VerifyTextures()
+    if verifyStartMs or #probes == 0 then return end
+    verifyStartMs = GetGameTimeMilliseconds()
+    EVENT_MANAGER:RegisterForUpdate(VERIFY_NAME, CHECK_INTERVAL_MS, CheckTextures)
+    CheckTextures()
 end
 
 -- Re-applies position, scale and visibility from the saved settings.

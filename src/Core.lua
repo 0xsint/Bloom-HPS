@@ -81,8 +81,8 @@ function M.HexToRGBA(hex, alpha)
 end
 
 -- Texture paths: the game wants them relative to the AddOns folder, and the
--- folder name may differ from M.name, so a few spellings are tried in turn
--- (the UI moves to the next one if the panel texture fails to load).
+-- folder name may differ from M.name, so a few spellings are checked side by
+-- side (see UI.VerifyTextures) and the first one that loads is used.
 local textureRoots, textureRootIndex
 
 function M.GetAddOnRootPath()
@@ -121,11 +121,11 @@ function M.TextureRoot()
     return M.TextureRoots()[textureRootIndex]
 end
 
--- Moves to the next candidate root; returns false when none are left.
-function M.NextTextureRoot()
-    local roots = M.TextureRoots()
-    if textureRootIndex >= #roots then return false end
-    textureRootIndex = textureRootIndex + 1
+-- Switches to candidate root `index`; returns true if it changed.
+function M.SetTextureRoot(index)
+    M.TextureRoots()
+    if index == textureRootIndex then return false end
+    textureRootIndex = index
     return true
 end
 
