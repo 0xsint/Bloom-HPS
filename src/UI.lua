@@ -353,7 +353,7 @@ function UI.BuildText(stats)
 
     if saved.showMitigation then
         Add("flower_mint", saved.mitigationColor,
-            "Mitigated", Fmt(stats.mitigated), "MPS", Fmt(stats.mps),
+            "Mitigated", Fmt(stats.mitigated), "MPM", Fmt(stats.mpm),
             "", format("%.1f%%", stats.mitigatedPct))
     end
 
